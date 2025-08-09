@@ -1,0 +1,40 @@
+name: API Trigger
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: '要执行的任务'
+        required: true
+        type: choice
+        options:
+          - 'test_message'
+          - 'test_new_stock'
+          - 'test_stock_pool'
+          - 'test_execute'
+          - 'test_reset'
+          - 'run_new_stock_info'
+          - 'push_strategy'
+          - 'update_stock_pool'
+          - 'crawl_daily'
+          - 'crawl_intraday'
+          - 'cleanup'
+
+jobs:
+  trigger-main-workflow:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger main workflow
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'schedule.yml',
+              ref: 'main',
+              inputs: {
+                task: '${{ inputs.task }}'
+              }
+            })
