@@ -13,9 +13,10 @@ from stock_pool import update_stock_pool, get_current_stock_pool
 from calculation import push_strategy_results
 from wecom import send_wecom_message
 from logger import get_logger
-from time_utils import convert_to_beijing_time, is_trading_day, is_trading_time
+from time_utils import get_beijing_time, convert_to_beijing_time, is_trading_day, is_trading_time
 import pandas as pd
 import time
+import os
 
 logger = get_logger(__name__)
 
@@ -114,7 +115,7 @@ def cron_new_stock_info():
     
     # 检查是否在重试时间前
     retry_time = get_new_stock_retry_time()
-    if retry_time and retry_time > datetime.now():
+    if retry_time and retry_time > get_beijing_time():
         logger.info(f"仍在重试等待期，下次尝试时间: {retry_time}")
         return jsonify({"status": "skipped", "message": f"Retry after {retry_time}"})
     
@@ -156,7 +157,7 @@ def push_new_stock_info():
 
 def format_new_stock_subscriptions_message(new_stocks):
     """格式化新股申购消息（严格区分申购信息，不包含中签率）"""
-    beijing_time = convert_to_beijing_time(datetime.now()).strftime('%Y-%m-%d %H:%M')
+    beijing_time = get_beijing_time().strftime('%Y-%m-%d %H:%M')
     message = f"CF系统时间：{beijing_time}\n【新股申购提醒】\n"
     message += "今日可申购新股如下（请留意申购时间，及时参与）：\n\n"
     
@@ -172,7 +173,7 @@ def format_new_stock_subscriptions_message(new_stocks):
 
 def test_message():
     """T01: 测试消息推送"""
-    beijing_time = convert_to_beijing_time(datetime.datetime.now()).strftime('%Y-%m-%d %H:%M')
+    beijing_time = get_beijing_time().strftime('%Y-%m-%d %H:%M')
     message = f"CF系统时间：{beijing_time}\n【测试消息】\n这是来自鱼盆ETF系统的测试消息。\n如果看到此消息，说明企业微信集成正常工作。"
     send_wecom_message(message)
     return jsonify({"status": "success", "message": "Test message sent"})
@@ -230,7 +231,7 @@ def test_stock_pool():
         return jsonify({"status": "error", "message": "No stock pool available"})
     
     # 格式化消息
-    beijing_time = convert_to_beijing_time(datetime.datetime.now()).strftime('%Y-%m-%d %H:%M')
+    beijing_time = get_beijing_time().strftime('%Y-%m-%d %H:%M')
     message = f"CF系统时间：{beijing_time}\n【ETF股票池】\n"
     message += f"更新时间：{stock_pool['update_time'].iloc[0]}\n\n"
     
@@ -263,7 +264,7 @@ def test_reset():
     if stock_pool is None or stock_pool.empty:
         return jsonify({"status": "error", "message": "No stock pool available"})
     
-    beijing_time = convert_to_beijing_time(datetime.datetime.now()).strftime('%Y-%m-%d %H:%M')
+    beijing_time = get_beijing_time().strftime('%Y-%m-%d %H:%M')
     for _, etf in stock_pool.iterrows():
         # 创建重置信号
         signal = {
@@ -329,19 +330,19 @@ def get_test_new_stock_subscriptions():
         'name': '维峰电子',
         'issue_price': 78.80,
         'max_purchase': 5500,
-        'issue_date': datetime.now().strftime('%Y-%m-%d')
+        'issue_date': get_beijing_time().strftime('%Y-%m-%d')
     }, {
         'code': '688435',
         'name': '英方软件',
         'issue_price': 38.66,
         'max_purchase': 7500,
-        'issue_date': datetime.now().strftime('%Y-%m-%d')
+        'issue_date': get_beijing_time().strftime('%Y-%m-%d')
     }])
 
 def health_check():
     """健康检查"""
     return jsonify({
         "status": "healthy",
-        "timestamp": convert_to_beijing_time(datetime.datetime.now()).isoformat(),
+        "timestamp": get_beijing_time().isoformat(),
         "environment": "production"
     })
