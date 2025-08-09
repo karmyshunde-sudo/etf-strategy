@@ -322,4 +322,26 @@ def test_new_stock_info():
     return jsonify({"status": "success", "message": "Test new stock info sent"})
 
 def get_test_new_stock_subscriptions():
-    """获取
+    """获取测试用的新股申购信息（使用真实历史数据）"""
+    # 这里使用2023年8月10日真实申购的新股数据
+    return pd.DataFrame([{
+        'code': '301328',
+        'name': '维峰电子',
+        'issue_price': 78.80,
+        'max_purchase': 5500,
+        'issue_date': datetime.now().strftime('%Y-%m-%d')
+    }, {
+        'code': '688435',
+        'name': '英方软件',
+        'issue_price': 38.66,
+        'max_purchase': 7500,
+        'issue_date': datetime.now().strftime('%Y-%m-%d')
+    }])
+
+def health_check():
+    """健康检查"""
+    return jsonify({
+        "status": "healthy",
+        "timestamp": convert_to_beijing_time(datetime.datetime.now()).isoformat(),
+        "environment": "production"
+    })
