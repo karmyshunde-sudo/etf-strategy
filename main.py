@@ -18,6 +18,15 @@ Config.init_directories()
 # 创建日志记录器
 logger = get_logger(__name__)
 
+try:
+    # 验证关键配置
+    if not Config.WECOM_WEBHOOK:
+        raise ValueError("WECOM_WEBHOOK 未设置！请在 GitHub Secrets 中添加 WECOM_WEBHOOK")
+    if not Config.TUSHARE_TOKEN:
+        logger.warning("TUSHARE_TOKEN 未设置，部分数据源可能不可用")
+except ValueError as e:logger.critical(f"配置验证失败: {str(e)}")
+    raise
+
 def main():
     """主执行函数"""
     logger.info("启动鱼盆ETF投资量化模型...")
