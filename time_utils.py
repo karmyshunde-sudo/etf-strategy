@@ -6,10 +6,16 @@
 """
 
 import datetime
+import pytz
 from config import Config
 from logger import get_logger
 
 logger = get_logger(__name__)
+
+def get_beijing_time():
+    """获取当前北京时间(UTC+8)"""
+    beijing_tz = pytz.timezone('Asia/Shanghai')
+    return datetime.datetime.now(beijing_tz)
 
 def convert_to_beijing_time(dt):
     """
@@ -21,7 +27,7 @@ def convert_to_beijing_time(dt):
     """
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=datetime.timezone.utc)  # 若无时区信息，假设为UTC
-    beijing_tz = datetime.timezone(datetime.timedelta(hours=8))  # UTC+8
+    beijing_tz = pytz.timezone('Asia/Shanghai')
     return dt.astimezone(beijing_tz)  # 转换为北京时间
 
 def is_trading_day(date=None):
@@ -33,8 +39,8 @@ def is_trading_day(date=None):
         bool: 是交易日返回True，否则返回False
     """
     if date is None:
-        date = datetime.datetime.now()
-    beijing_date = convert_to_beijing_time(date).date()
+        date = get_beijing_time()
+    beijing_date = date.date()
     
     # 简单检查：周一至周五且不是已知节假日
     # 实际实现中，应检查节假日日历
@@ -49,8 +55,8 @@ def is_trading_time():
         bool: 是交易时间返回True，否则返回False
         str: 当前交易时段类型
     """
-    now = datetime.datetime.now()
-    beijing_time = convert_to_beijing_time(now).time()
+    now = get_beijing_time()
+    beijing_time = now.time()
     
     # 集合竞价时段 (9:15-9:25)
     if datetime.time(9, 15) <= beijing_time < datetime.time(9, 25):
