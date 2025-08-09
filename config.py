@@ -11,8 +11,8 @@ from datetime import timedelta
 class Config:
     """基础配置类"""
     # 企业微信配置
-    WECOM_WEBHOOK = os.getenv('WECOM_WEBHOOK', 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=2f594b04-eb03-42b6-ad41-ff148bd57183')
-    CRON_SECRET = os.getenv('CRON_SECRET', 'edcc16d601e2285f05508408f6def775b63fe47df81b11d283597922')
+    WECOM_WEBHOOK = os.getenv('WECOM_WEBHOOK', '')
+    CRON_SECRET = os.getenv('CRON_SECRET', '')
     
     # 数据保留策略
     OTHER_DATA_RETENTION_DAYS = 3650  # 10年
@@ -28,7 +28,7 @@ class Config:
     NEW_STOCK_DIR = os.path.join(BASE_DATA_DIR, 'new_stock')  # 新增新股数据目录
     
     # Tushare配置
-    TUSHARE_TOKEN = 'edcc16d601e2285f05508408f6def775b63fe47df81b11d283597922'
+    TUSHARE_TOKEN = os.getenv('TUSHARE_TOKEN', '')
     
     # 端口配置
     PORT = os.getenv('PORT', '5000')
