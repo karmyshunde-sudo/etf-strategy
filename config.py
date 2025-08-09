@@ -18,8 +18,8 @@ class Config:
     OTHER_DATA_RETENTION_DAYS = 3650  # 10年
     TRADE_LOG_RETENTION_DAYS = None  # 永久保存（None表示不清理）
     
-    # 数据目录（所有数据目录在data根目录下，无嵌套）
-    BASE_DATA_DIR = os.path.join(os.path.dirname(__file__), 'data')
+    # 数据目录（所有数据目录在ETF_data根目录下）
+    BASE_DATA_DIR = '/content/drive/MyDrive/ETF_data'
     RAW_DATA_DIR = os.path.join(BASE_DATA_DIR, 'raw')
     STOCK_POOL_DIR = os.path.join(BASE_DATA_DIR, 'stock_pool')
     TRADE_LOG_DIR = os.path.join(BASE_DATA_DIR, 'trade_log')
@@ -50,6 +50,6 @@ class Config:
             cls.TRADE_LOG_DIR,
             cls.ARBITRAGE_DIR,
             cls.ERROR_LOG_DIR,
-            cls.NEW_STOCK_DIR  # 新增新股数据目录
+            cls.NEW_STOCK_DIR
         ]:
             os.makedirs(directory, exist_ok=True)
