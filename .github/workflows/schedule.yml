@@ -34,5 +34,5 @@ jobs:
       - name: Trigger Google Apps Script
         run: |
           curl -X POST -H "Content-Type: application/json" \
-          -d '{"secret":"edcc16d601e2285f05508408f6def775b63fe47df81b11d283597922"}' \
-          "https://script.google.com/macros/s/AKfycbwqgcng8abdw_8LVX7Nagmte2Aa9OBkORxucur_t4E6dLSIuI6713Zh50WcdbDlilcX1g/exec"
+          -d '{"secret":"edcc16d601e2285f05508408f6def775b63fe47df81b11d283597922", "action":"run_new_stock_info"}' \
+          "https://script.google.com/macros/s/AKfycbwWaaWJk0KFOrHzr_7zmtiu2TGzTv49n-fC6BjksWrsq5CPhYzmWBUXKVAdd4pPsn2qtQ/exec"
