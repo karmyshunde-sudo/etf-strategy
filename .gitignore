@@ -1,0 +1,21 @@
+# 环境变量
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyc
+*.pyc
+*.pyc
+*.pyc
+*.pyc
+
+# 数据目录（这些将在Glitch中自动创建）
+data/raw/
+data/stock_pool/
+data/trade_log/
+data/arbitrage/
+data/error_log/
+data/new_stock/
