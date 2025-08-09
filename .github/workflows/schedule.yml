@@ -1,0 +1,38 @@
+name: ETF Strategy Scheduler
+
+# 时区设置为北京时间
+env:
+  TZ: Asia/Shanghai
+
+on:
+  schedule:
+    # 每个交易日 9:30 推送新股信息
+    - cron: '30 9 * * 1-5'
+    
+    # 每个交易日 14:50 推送策略信号
+    - cron: '50 14 * * 1-5'
+    
+    # 每周五 16:00 更新股票池
+    - cron: '0 16 * * 5'
+    
+    # 每个交易日 15:30 爬取日线数据
+    - cron: '30 15 * * 1-5'
+    
+    # 盘中数据爬取（9:35,10:05,10:35,11:05,13:05,13:35,14:05,14:35）
+    - cron: '35 9,10,11,13,14 * * 1-5'
+    
+    # 每天 00:00 清理旧数据
+    - cron: '0 0 * * *'
+  
+  # 允许手动触发
+  workflow_dispatch:
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Google Apps Script
+        run: |
+          curl -X POST -H "Content-Type: application/json" \
+          -d '{"secret":"edcc16d601e2285f05508408f6def775b63fe47df81b11d283597922"}' \
+          "https://script.google.com/macros/s/AKfycbwqgcng8abdw_8LVX7Nagmte2Aa9OBkORxucur_t4E6dLSIuI6713Zh50WcdbDlilcX1g/exec"
