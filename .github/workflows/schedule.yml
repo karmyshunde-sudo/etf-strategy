@@ -24,15 +24,59 @@ on:
     # 每天 00:00 清理旧数据
     - cron: '0 0 * * *'
   
-  # 允许手动触发
+  # 允许手动触发，提供完整测试场景
   workflow_dispatch:
+    inputs:
+      task:
+        description: '选择要执行的任务'
+        required: true
+        default: 'run_new_stock_info'
+        type: choice
+        options:
+          - 'test_message'                 # T01: 测试消息推送
+          - 'test_new_stock'               # T07: 测试新股申购信息推送
+          - 'test_stock_pool'              # T04: 手动推送当前股票池
+          - 'test_execute'                 # T05: 执行策略并推送结果
+          - 'test_reset'                   # T06: 重置所有仓位
+          - 'run_new_stock_info'           # 每日 9:30 新股信息推送
+          - 'push_strategy'                # 每日 14:50 策略信号推送
+          - 'update_stock_pool'            # 每周五 16:00 更新股票池
+          - 'crawl_daily'                  # 每日 15:30 爬取日线数据
+          - 'crawl_intraday'               # 盘中数据爬取
+          - 'cleanup'                      # 每天 00:00 清理旧数据
 
 jobs:
-  trigger:
+  run-strategy:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger Google Apps Script
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: Install dependencies
         run: |
-          curl -X POST -H "Content-Type: application/json" \
-          -d '{"secret":"edcc16d601e2285f05508408f6def775b63fe47df81b11d283597922", "action":"run_new_stock_info"}' \
-          "https://script.google.com/macros/s/AKfycbwWaaWJk0KFOrHzr_7zmtiu2TGzTv49n-fC6BjksWrsq5CPhYzmWBUXKVAdd4pPsn2qtQ/exec"
+          python -m pip install --upgrade pip
+          pip install pandas numpy requests akshare baostock beautifulsoup4 python-dotenv tushare pytz
+
+      - name: Run strategy
+        env:
+          TASK: ${{ github.event.inputs.task || 'run_new_stock_info' }}
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+        run: |
+          # 执行主程序
+          python main.py
+          
+          # 提交数据变更到仓库
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add data/
+          git commit -m "自动更新策略数据 $(date)" || echo "No changes to commit"
+          git push || echo "Failed to push changes"
+
+      - name: Verify execution
+        run: |
+          echo "Strategy execution completed successfully!"
