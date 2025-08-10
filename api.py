@@ -272,15 +272,13 @@ def test_new_stock():
     new_stocks = get_test_new_stock_subscriptions()
     
     if new_stocks.empty:
-        return jsonify({"status": "error", "message": "No test new stocks available"})
+        return {"status": "error", "message": "No test new stocks available"}
     
     from crawler import format_new_stock_subscriptions_message
-    message = format_new_stock_subscriptions_message(new_stocks)
-    # 添加测试标识
-    message = "【测试消息】\nT07: 测试推送新股信息（只推送当天可申购的新股）\n" + message
+    message = "【测试消息】\nT07: 测试推送新股信息（只推送当天可申购的新股）\n" + format_new_stock_subscriptions_message(new_stocks)
     send_wecom_message(message)
     
-    return jsonify({"status": "success", "message": "Test new stocks sent"})
+    return {"status": "success", "message": "Test new stocks sent"}
 
 def test_new_stock_info():
     """T08: 测试推送所有新股申购信息"""
