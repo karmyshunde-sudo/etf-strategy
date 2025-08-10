@@ -73,6 +73,7 @@ jobs:
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+          MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
         run: |
           # 执行主程序
           python main.py
