@@ -1,10 +1,10 @@
-flask
-requests
+flask==2.3.2
 pandas
-numpy
-akshare
-baostock
+requests
 beautifulsoup4
 python-dotenv
+akshare
+baostock
 tushare
-flask==2.3.2
+pytz
+numpy
