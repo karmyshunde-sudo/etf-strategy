@@ -50,7 +50,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -60,12 +60,19 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pandas numpy requests akshare baostock beautifulsoup4 python-dotenv tushare pytz
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            echo "requirements.txt 未找到，安装默认依赖"
+            pip install pandas numpy requests akshare baostock beautifulsoup4 python-dotenv tushare pytz flask
+          fi
 
       - name: Run strategy
         env:
           TASK: ${{ github.event.inputs.task || 'run_new_stock_info' }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
         run: |
           # 执行主程序
           python main.py
