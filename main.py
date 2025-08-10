@@ -7,6 +7,7 @@
 """
 
 import os
+import sys
 from config import Config
 from api import register_api
 from logger import get_logger
@@ -24,7 +25,8 @@ try:
         raise ValueError("WECOM_WEBHOOK 未设置！请在 GitHub Secrets 中添加 WECOM_WEBHOOK")
     if not Config.TUSHARE_TOKEN:
         logger.warning("TUSHARE_TOKEN 未设置，部分数据源可能不可用")
-except ValueError as e:logger.critical(f"配置验证失败: {str(e)}")
+except ValueError as e:
+    logger.critical(f"配置验证失败: {str(e)}")
     raise
 
 def main():
@@ -76,6 +78,12 @@ def main():
         raise
 
 if __name__ == '__main__':
-    main()
-    # 保持连接几秒确保日志记录
-    time.sleep(5)
+    try:
+        main()
+    except Exception as e:
+        logger = get_logger(__name__)
+        logger.critical(f"程序执行失败: {str(e)}", exc_info=True)
+        sys.exit(1)
+    finally:
+        # 保持连接几秒确保日志记录
+        time.sleep(5)
