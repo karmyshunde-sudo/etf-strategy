@@ -39,7 +39,7 @@ def main():
     
     try:
         if task == 'new_stock_info' or task == 'all':
-            from api import push_new_stock_info
+            from crawler import push_new_stock_info
             logger.info("开始新股信息推送...")
             success = push_new_stock_info()
             if success:
