@@ -7,10 +7,8 @@
 
 from flask import request, jsonify
 from config import Config
-from crawler import get_etf_data, get_new_stock_subscriptions, is_new_stock_info_pushed, mark_new_stock_info_pushed, set_new_stock_retry, clear_new_stock_pushed_flag, get_new_stock_retry_time, clear_new_stock_retry_flag
-from storage import cleanup_old_data
-from stock_pool import update_stock_pool, get_current_stock_pool
-from calculation import push_strategy_results
+from scoring import generate_stock_pool, get_current_stock_pool, get_top_n_etfs
+from calculation import push_strategy_results, test_strategy
 from wecom import send_wecom_message
 from logger import get_logger
 from time_utils import get_beijing_time, convert_to_beijing_time, is_trading_day, is_trading_time
@@ -67,6 +65,7 @@ def cron_update_stock_pool():
     if request.args.get('secret') != Config.CRON_SECRET:
         return jsonify({"error": "Invalid secret"}), 401
     
+    from stock_pool import update_stock_pool
     result = update_stock_pool()
     if result is None:
         return jsonify({"status": "skipped", "message": "Not Friday or before 16:00"})
@@ -95,6 +94,7 @@ def cron_cleanup():
     if request.args.get('secret') != Config.CRON_SECRET:
         return jsonify({"error": "Invalid secret"}), 401
     
+    from storage import cleanup_old_data
     cleanup_old_data()
     return jsonify({"status": "success", "message": "Old data cleaned"})
 
@@ -109,67 +109,30 @@ def cron_new_stock_info():
         return jsonify({"status": "skipped", "message": "Not trading day"})
     
     # 检查是否已经推送过
+    from crawler import is_new_stock_info_pushed
     if is_new_stock_info_pushed():
         logger.info("新股信息已推送，跳过")
         return jsonify({"status": "skipped", "message": "Already pushed"})
     
     # 检查是否在重试时间前
+    from crawler import get_new_stock_retry_time
     retry_time = get_new_stock_retry_time()
     if retry_time and retry_time > get_beijing_time():
         logger.info(f"仍在重试等待期，下次尝试时间: {retry_time}")
         return jsonify({"status": "skipped", "message": f"Retry after {retry_time}"})
     
     # 尝试推送
+    from crawler import push_new_stock_info
     success = push_new_stock_info()
     
     # 如果失败，设置30分钟后重试
     if not success:
         logger.info("新股信息推送失败，30分钟后重试")
+        from crawler import set_new_stock_retry
         set_new_stock_retry()
         return jsonify({"status": "retry", "message": "Will retry in 30 minutes"})
     
     return jsonify({"status": "success", "message": "New stock info pushed"})
-
-def push_new_stock_info():
-    """推送当天可申购的新股信息"""
-    logger.info("开始推送新股申购信息")
-    
-    # 获取当天可申购的新股
-    new_stocks = get_new_stock_subscriptions()
-    
-    # 如果没有新股，不推送
-    if new_stocks.empty:
-        logger.info("今日无可申购新股，跳过推送")
-        mark_new_stock_info_pushed()  # 标记为已检查
-        return True
-    
-    # 推送新股信息
-    message = format_new_stock_subscriptions_message(new_stocks)
-    send_wecom_message(message)
-    
-    # 标记为已推送
-    mark_new_stock_info_pushed()
-    # 清除重试标记
-    clear_new_stock_retry_flag()
-    
-    logger.info(f"新股申购信息推送完成，共推送 {len(new_stocks)} 只新股")
-    return True
-
-def format_new_stock_subscriptions_message(new_stocks):
-    """格式化新股申购消息（严格区分申购信息，不包含中签率）"""
-    beijing_time = get_beijing_time().strftime('%Y-%m-%d %H:%M')
-    message = f"CF系统时间：{beijing_time}\n【新股申购提醒】\n"
-    message += "今日可申购新股如下（请留意申购时间，及时参与）：\n\n"
-    
-    for _, stock in new_stocks.iterrows():
-        message += f"股票代码：{stock['code']}\n"
-        message += f"股票名称：{stock['name']}\n"
-        message += f"申购价格：{stock['issue_price']}元\n"
-        message += f"申购上限：{stock['max_purchase']}股\n"
-        message += f"申购日期：{stock['issue_date']}\n\n"
-    
-    message += "注：以上为新股申购信息，非上市交易信息。申购后需等待摇号结果，中签者需缴纳款项。投资有风险，申购需谨慎。"
-    return message
 
 def test_message():
     """T01: 测试消息推送"""
@@ -187,7 +150,6 @@ def test_strategy():
     results = []
     for _, etf in stock_pool.iterrows():
         etf_type = 'stable' if etf['type'] == '稳健仓' else 'aggressive'
-        from calculation import calculate_strategy
         signal = calculate_strategy(etf['code'], etf['name'], etf_type)
         results.append({
             'code': etf['code'],
@@ -268,6 +230,7 @@ def test_reset():
     beijing_time = get_beijing_time().strftime('%Y-%m-%d %H:%M')
     for _, etf in stock_pool.iterrows():
         # 创建重置信号
+        etf_type = 'stable' if etf['type'] == '稳健仓' else 'aggressive'
         signal = {
             'etf_code': etf['code'],
             'etf_name': etf['name'],
@@ -300,11 +263,13 @@ def test_reset():
 def test_new_stock():
     """T07: 测试推送新股信息（只推送当天可申购的新股）"""
     # 获取测试用的新股信息
+    from crawler import get_test_new_stock_subscriptions
     new_stocks = get_test_new_stock_subscriptions()
     
     if new_stocks.empty:
         return jsonify({"status": "error", "message": "No test new stocks available"})
     
+    from crawler import format_new_stock_subscriptions_message
     message = format_new_stock_subscriptions_message(new_stocks)
     # 添加测试标识
     message = "【测试消息】\n" + message
@@ -315,31 +280,16 @@ def test_new_stock():
 def test_new_stock_info():
     """T08: 测试推送所有新股申购信息"""
     # 获取测试数据
+    from crawler import get_test_new_stock_subscriptions
     new_stocks = get_test_new_stock_subscriptions()
     
     # 推送新股信息
     if not new_stocks.empty:
+        from crawler import format_new_stock_subscriptions_message
         message = "【测试消息】\n" + format_new_stock_subscriptions_message(new_stocks)
         send_wecom_message(message)
     
     return jsonify({"status": "success", "message": "Test new stock info sent"})
-
-def get_test_new_stock_subscriptions():
-    """获取测试用的新股申购信息（使用真实历史数据）"""
-    # 这里使用2023年8月10日真实申购的新股数据
-    return pd.DataFrame([{
-        'code': '301328',
-        'name': '维峰电子',
-        'issue_price': 78.80,
-        'max_purchase': 5500,
-        'issue_date': get_beijing_time().strftime('%Y-%m-%d')
-    }, {
-        'code': '688435',
-        'name': '英方软件',
-        'issue_price': 38.66,
-        'max_purchase': 7500,
-        'issue_date': get_beijing_time().strftime('%Y-%m-%d')
-    }])
 
 def health_check():
     """健康检查"""
