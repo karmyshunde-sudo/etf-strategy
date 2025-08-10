@@ -1,14 +1,13 @@
 """
-鱼盆ETF投资量化模型 - 日志处理工具
+鱼盆ETF投资量化模型 - 日志记录
 说明:
-  本文件提供日志记录功能
+  本文件提供统一的日志记录功能
   所有文件放在根目录，简化导入关系
 """
 
 import logging
 import os
 from datetime import datetime
-from config import Config
 
 def get_logger(name):
     """
@@ -18,6 +17,9 @@ def get_logger(name):
     返回:
         logger: 配置好的日志记录器
     """
+    # 延迟导入Config，解决循环导入问题
+    from config import Config
+    
     # 确保错误日志目录存在
     os.makedirs(Config.ERROR_LOG_DIR, exist_ok=True)
     
@@ -26,9 +28,10 @@ def get_logger(name):
     
     # 创建日志记录器
     logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
+    log_level = getattr(logging, Config.LOG_LEVEL.upper(), logging.INFO)
+    logger.setLevel(log_level)
     
-    # 创建文件处理器
+    # 创建文件处理器（仅记录错误）
     log_file = os.path.join(Config.ERROR_LOG_DIR, f"error_{datetime.now().strftime('%Y%m%d')}.log")
     file_handler = logging.FileHandler(log_file)
     file_handler.setFormatter(formatter)
@@ -37,7 +40,7 @@ def get_logger(name):
     # 创建控制台处理器
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
-    console_handler.setLevel(logging.INFO)
+    console_handler.setLevel(log_level)
     
     # 添加处理器
     logger.addHandler(file_handler)
