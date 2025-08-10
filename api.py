@@ -187,7 +187,8 @@ def test_strategy():
     results = []
     for _, etf in stock_pool.iterrows():
         etf_type = 'stable' if etf['type'] == '稳健仓' else 'aggressive'
-        signal = calculation.calculate_strategy(etf['code'], etf['name'], etf_type)
+        from calculation import calculate_strategy
+        signal = calculate_strategy(etf['code'], etf['name'], etf_type)
         results.append({
             'code': etf['code'],
             'name': etf['name'],
@@ -255,7 +256,7 @@ def test_stock_pool():
 
 def test_execute():
     """T05: 执行策略并推送结果"""
-    success = calculation.push_strategy_results()
+    success = push_strategy_results()
     return jsonify({"status": "success" if success else "error"})
 
 def test_reset():
@@ -288,7 +289,8 @@ def test_reset():
         send_wecom_message(message)
         
         # 记录交易
-        calculation.log_trade(signal)
+        from calculation import log_trade
+        log_trade(signal)
         
         # 间隔1分钟
         time.sleep(60)
