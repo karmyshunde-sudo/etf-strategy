@@ -18,7 +18,7 @@ class Config:
     CRON_SECRET = os.getenv('CRON_SECRET', '')
     
     # 消息备注（全局变量，所有推送消息结尾都会添加）
-    MESSAGE_FOOTER = os.getenv('MESSAGE_FOOTER', '免责声明：投资有风险，入市需谨慎。本系统提供的策略仅供参考，不构成投资建议。')
+    MESSAGE_FOOTER = os.getenv('MESSAGE_FOOTER', '纯GiH-Etf-strategy20250810')
     
     # 数据保留策略
     OTHER_DATA_RETENTION_DAYS = 3650  # 10年
