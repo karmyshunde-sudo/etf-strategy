@@ -138,9 +138,14 @@ def test_message():
     """T01: 测试消息推送"""
     beijing_time = get_beijing_time().strftime('%Y-%m-%d %H:%M')
     message = f"CF系统时间：{beijing_time}\n【测试消息】\n这是来自鱼盆ETF系统的测试消息。\n如果看到此消息，说明企业微信集成正常工作。"
-    send_wecom_message(message)
+    
+    # 创建临时应用上下文
+    from flask import current_app
+    with current_app.app_context():
+        send_wecom_message(message)
+    
     return jsonify({"status": "success", "message": "Test message sent"})
-
+  
 def test_strategy():
     """T02: 测试策略执行（仅返回结果）"""
     stock_pool = get_current_stock_pool()
