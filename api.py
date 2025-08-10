@@ -141,8 +141,7 @@ def test_message():
     
     # 创建临时应用上下文
     from flask import current_app
-    with current_app.app_context():
-        send_wecom_message(message)
+    send_wecom_message(message)
     
     return jsonify({"status": "success", "message": "Test message sent"})
   
