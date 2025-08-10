@@ -7,19 +7,25 @@
 
 import os
 from datetime import timedelta
+from logger import get_logger
+
+logger = get_logger(__name__)
 
 class Config:
     """基础配置类"""
-    # 企业微信配置
+    # 企业微信配置 - 重要安全修改：默认值为空，强制使用环境变量
     WECOM_WEBHOOK = os.getenv('WECOM_WEBHOOK', '')
     CRON_SECRET = os.getenv('CRON_SECRET', '')
+    
+    # 消息备注（全局变量，所有推送消息结尾都会添加）
+    MESSAGE_FOOTER = os.getenv('MESSAGE_FOOTER', '免责声明：投资有风险，入市需谨慎。本系统提供的策略仅供参考，不构成投资建议。')
     
     # 数据保留策略
     OTHER_DATA_RETENTION_DAYS = 3650  # 10年
     TRADE_LOG_RETENTION_DAYS = None  # 永久保存（None表示不清理）
     
-    # 数据目录（所有数据目录在ETF_data根目录下）
-    BASE_DATA_DIR = '/content/drive/MyDrive/ETF_data'
+    # 数据目录（所有数据存储在仓库内，无需Google Drive）
+    BASE_DATA_DIR = os.path.join(os.path.dirname(__file__), 'data')
     RAW_DATA_DIR = os.path.join(BASE_DATA_DIR, 'raw')
     STOCK_POOL_DIR = os.path.join(BASE_DATA_DIR, 'stock_pool')
     TRADE_LOG_DIR = os.path.join(BASE_DATA_DIR, 'trade_log')
@@ -53,3 +59,20 @@ class Config:
             cls.NEW_STOCK_DIR
         ]:
             os.makedirs(directory, exist_ok=True)
+    
+    # 验证配置
+    @classmethod
+    def validate(cls):
+        """验证关键配置是否正确设置"""
+        if not cls.WECOM_WEBHOOK:
+            error_msg = "WECOM_WEBHOOK 未设置！请在 GitHub Secrets 中添加 WECOM_WEBHOOK"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        if 'WECOM_WEBHOOK_NOT_SET' in cls.WECOM_WEBHOOK:
+            error_msg = "WECOM_WEBHOOK 设置为占位符！请在 GitHub Secrets 中正确设置"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        if not cls.CRON_SECRET:
+            logger.warning("CRON_SECRET 未设置，定时任务可能无法验证")
