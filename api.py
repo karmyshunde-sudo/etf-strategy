@@ -137,7 +137,7 @@ def cron_new_stock_info():
 def test_message():
     """T01: 测试消息推送"""
     beijing_time = get_beijing_time().strftime('%Y-%m-%d %H:%M')
-    message = f"CF系统时间：{beijing_time}\n【测试消息】\n这是来自鱼盆ETF系统的测试消息。\n如果看到此消息，说明企业微信集成正常工作。"
+    message = f"CF系统时间：{beijing_time}\n【测试消息】\n这是来自鱼盆ETF系统的测试消息。\nT01: 测试消息推送。"
     
     # 创建临时应用上下文
     from flask import current_app
@@ -200,7 +200,7 @@ def test_stock_pool():
     
     # 格式化消息
     beijing_time = get_beijing_time().strftime('%Y-%m-%d %H:%M')
-    message = f"CF系统时间：{beijing_time}\n【ETF股票池】\n"
+    message = f"T04: 手动推送当前股票池\nCF系统时间：{beijing_time}\n【ETF股票池】\n"
     message += f"更新时间：{stock_pool['update_time'].iloc[0]}\n\n"
     
     # 稳健仓
@@ -246,7 +246,8 @@ def test_reset():
         }
         
         # 格式化消息
-        message = f"CF系统时间：{signal['cf_time']}\n"
+        message = f"T05: 执行策略并推送结果\n"
+        message += f"CF系统时间：{signal['cf_time']}\n"
         message += f"ETF代码：{signal['etf_code']}\n"
         message += f"名称：{signal['etf_name']}\n"
         message += f"操作建议：仓位重置\n"
@@ -277,7 +278,7 @@ def test_new_stock():
     from crawler import format_new_stock_subscriptions_message
     message = format_new_stock_subscriptions_message(new_stocks)
     # 添加测试标识
-    message = "【测试消息】\n" + message
+    message = "【测试消息】\nT07: 测试推送新股信息（只推送当天可申购的新股）\n" + message
     send_wecom_message(message)
     
     return jsonify({"status": "success", "message": "Test new stocks sent"})
@@ -291,7 +292,7 @@ def test_new_stock_info():
     # 推送新股信息
     if not new_stocks.empty:
         from crawler import format_new_stock_subscriptions_message
-        message = "【测试消息】\n" + format_new_stock_subscriptions_message(new_stocks)
+        message = "【测试消息】T08: 测试推送所有新股申购信息\n" + format_new_stock_subscriptions_message(new_stocks)
         send_wecom_message(message)
     
     return jsonify({"status": "success", "message": "Test new stock info sent"})
