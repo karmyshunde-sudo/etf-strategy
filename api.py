@@ -4,11 +4,10 @@
   本文件定义所有API端点
   所有文件放在根目录，简化导入关系
 """
-
 from flask import request, jsonify
 from config import Config
 from scoring import generate_stock_pool, get_current_stock_pool, get_top_n_etfs
-from calculation import push_strategy_results, test_strategy
+from calculation import push_strategy_results
 from wecom import send_wecom_message
 from logger import get_logger
 from time_utils import get_beijing_time, convert_to_beijing_time, is_trading_day, is_trading_time
@@ -19,6 +18,7 @@ import os
 logger = get_logger(__name__)
 
 def register_api(app):
+
     """注册所有API端点"""
     # 定时任务端点
     app.add_url_rule('/cron/crawl_daily', 'crawl_daily', cron_crawl_daily, methods=['POST'])
