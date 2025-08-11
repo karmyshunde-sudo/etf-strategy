@@ -268,17 +268,26 @@ def test_reset():
 def test_new_stock():
     """T07: 测试推送新股信息（只推送当天可申购的新股）"""
     # 获取测试用的新股信息
-    from crawler import get_test_new_stock_subscriptions
     new_stocks = get_test_new_stock_subscriptions()
     
+    # 检查是否获取到新股数据
     if new_stocks.empty:
+        logger.error("测试错误：未获取到任何新股信息")
         return {"status": "error", "message": "No test new stocks available"}
     
-    from crawler import format_new_stock_subscriptions_message
+    # 格式化消息 - 关键修复：添加测试标识前缀
     message = "【测试消息】\nT07: 测试推送新股信息（只推送当天可申购的新股）\n" + format_new_stock_subscriptions_message(new_stocks)
-    send_wecom_message(message)
     
-    return {"status": "success", "message": "Test new stocks sent"}
+    # 发送消息
+    success = send_wecom_message(message)
+    
+    # 检查推送结果
+    if success:
+        logger.info("测试消息推送成功")
+        return {"status": "success", "message": "Test new stocks sent"}
+    else:
+        logger.error("测试消息推送失败")
+        return {"status": "error", "message": "Failed to send test new stocks"}
 
 def test_new_stock_info():
     """T08: 测试推送所有新股申购信息"""
