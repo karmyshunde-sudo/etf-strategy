@@ -324,53 +324,82 @@ def get_all_etf_list():
         DataFrame: ETF列表，包含代码和名称
     """
     try:
-        # 从AkShare获取ETF列表
+        # 从AkShare获取ETF列表（主数据源）
+        logger.info("尝试从AkShare获取ETF列表...")
         df = ak.fund_etf_category(symbol="ETF基金")
         if not df.empty:
             # 筛选仅保留ETF
             etf_list = df[df['基金类型'] == 'ETF'].copy()
             etf_list = etf_list[['基金代码', '基金简称']]
             etf_list.columns = ['code', 'name']
+            logger.info(f"从AkShare成功获取 {len(etf_list)} 只ETF")
             return etf_list
+    except Exception as e:
+        logger.error(f"AkShare获取ETF列表失败: {str(e)}")
+    
+    # 尝试Baostock（备用数据源1）
+    try:
+        logger.info("尝试从Baostock获取ETF列表...")
+        # 登录Baostock
+        login_result = bs.login()
+        if login_result.error_code != '0':
+            logger.error(f"Baostock登录失败: {login_result.error_msg}")
+            raise Exception("Baostock登录失败")
         
-        # 如果AkShare失败，尝试Tushare
-        ts.set_token(Config.TUSHARE_TOKEN)
-        pro = ts.pro_api()
+        # 查询ETF基金
+        rs = bs.query_stock_basic(code="sh51")
+        etf_list = []
+        while (rs.error_code == '0') & rs.next():
+            etf_list.append(rs.get_row_data())
         
-        # 获取ETF基础信息
-        df = pro.fund_basic(market='E', status='L')
-        if not df.empty:
+        rs = bs.query_stock_basic(code="sz159")
+        while (rs.error_code == '0') & rs.next():
+            etf_list.append(rs.get_row_data())
+        
+        if etf_list:
+            df = pd.DataFrame(etf_list, columns=rs.fields)
             # 筛选ETF
-            df = df[df['type'] == 'E']
-            df = df[['ts_code', 'name']]
+            df = df[df['code_name'].str.contains('ETF')]
+            df = df[['code', 'code_name']]
             df.columns = ['code', 'name']
-            # 去掉交易所后缀
-            df['code'] = df['code'].str.replace(r'\.(SH|SZ)', '', regex=True)
+            # 移除交易所前缀
+            df['code'] = df['code'].str.replace('sh.', '').str.replace('sz.', '')
+            
+            logger.info(f"从Baostock成功获取 {len(df)} 只ETF")
             return df
         
-        # 如果Tushare也失败，尝试从新浪财经获取
+        logger.warning("Baostock返回空数据，尝试下一个数据源...")
+    except Exception as e:
+        logger.error(f"Baostock获取ETF列表失败: {str(e)}")
+    finally:
+        try:
+            bs.logout()
+        except:
+            pass
+    
+    # 尝试新浪财经（备用数据源2）
+    try:
+        logger.info("尝试从新浪财经获取ETF列表...")
         sina_url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=1&num=100&sort=symbol&asc=1&node=etf_hk&symbol=&_s_r_a=page"
         response = requests.get(sina_url, timeout=15)
+        response.raise_for_status()
         data = response.json()
         
         if data:
             etf_list = pd.DataFrame(data)
             etf_list = etf_list[['symbol', 'name']]
             etf_list.columns = ['code', 'name']
+            logger.info(f"从新浪财经成功获取 {len(etf_list)} 只ETF")
             return etf_list
-        
-        # 如果所有数据源都失败，返回一个默认列表
-        return pd.DataFrame({
-            'code': ['510050', '510300', '510500', '159915', '512888', '512480', '512660', '512980', '159825', '159995'],
-            'name': ['上证50ETF', '沪深300ETF', '中证500ETF', '创业板ETF', '消费ETF', '半导体ETF', '军工ETF', '通信ETF', '新能源ETF', '医疗ETF']
-        })
     except Exception as e:
-        logger.error(f"获取ETF列表失败: {str(e)}")
-        # 返回默认ETF列表
-        return pd.DataFrame({
-            'code': ['510050', '510300', '510500', '159915', '512888', '512480', '512660', '512980', '159825', '159995'],
-            'name': ['上证50ETF', '沪深300ETF', '中证500ETF', '创业板ETF', '消费ETF', '半导体ETF', '军工ETF', '通信ETF', '新能源ETF', '医疗ETF']
-        })
+        logger.error(f"新浪财经获取ETF列表失败: {str(e)}")
+    
+    # 如果所有数据源都失败，返回一个默认列表
+    logger.error("所有数据源均无法获取ETF列表，使用默认ETF列表")
+    return pd.DataFrame({
+        'code': ['510050', '510300', '510500', '159915', '512888', '512480', '512660', '512980', '159825', '159995'],
+        'name': ['上证50ETF', '沪深300ETF', '中证500ETF', '创业板ETF', '消费ETF', '半导体ETF', '军工ETF', '通信ETF', '新能源ETF', '医疗ETF']
+    })
 
 def calculate_component_weights(etf_code):
     """
@@ -483,74 +512,127 @@ def calculate_premium_rate(etf_code, etf_price=None):
 def get_new_stock_subscriptions():
     """
     获取当天可申购的新股（IPO）
+    使用多数据源回退机制：
+    1. 主数据源：AkShare
+    2. 备用数据源1：Baostock
+    3. 备用数据源2：新浪财经
+    
     返回:
         DataFrame: 当天可申购的新股信息
     """
+    # 尝试AkShare（主数据源）
     try:
-        # 使用Tushare获取新股申购信息
-        ts.set_token(Config.TUSHARE_TOKEN)
-        pro = ts.pro_api()
+        logger.info("尝试从AkShare获取新股申购信息...")
+        # AkShare没有直接获取新股申购的API，使用替代方案
+        # 使用AkShare获取IPO信息
+        df = ak.stock_ipo_cninfo()
         
-        # 获取今日新股申购信息
-        today = datetime.now().strftime('%Y%m%d')
-        df = pro.new_share(start_date=today, end_date=today)
+        if not df.empty:
+            # 筛选今天可申购的
+            today = datetime.now().strftime('%Y-%m-%d')
+            df = df[df['网上申购日'] == today]
+            
+            if not df.empty:
+                # 重命名列为标准格式
+                df = df.rename(columns={
+                    '证券代码': 'code',
+                    '证券简称': 'name',
+                    '发行价格': 'issue_price',
+                    '申购上限': 'max_purchase',
+                    '网上申购日': 'issue_date'
+                })
+                # 转换数据类型
+                df['issue_price'] = df['issue_price'].astype(float)
+                df['max_purchase'] = df['max_purchase'].astype(int)
+                
+                logger.info(f"从AkShare成功获取 {len(df)} 条新股信息")
+                return df[['code', 'name', 'issue_price', 'max_purchase', 'issue_date']]
+        
+        logger.warning("AkShare返回空数据，尝试备用数据源...")
+    except Exception as e:
+        logger.error(f"AkShare获取新股申购信息失败: {str(e)}")
+    
+    # 尝试Baostock（备用数据源1）
+    try:
+        logger.info("尝试从Baostock获取新股申购信息...")
+        # Baostock没有直接获取新股申购的API，使用替代方案
+        # 登录Baostock
+        login_result = bs.login()
+        if login_result.error_code != '0':
+            logger.error(f"Baostock登录失败: {login_result.error_msg}")
+            return pd.DataFrame(columns=['code', 'name', 'issue_price', 'max_purchase', 'issue_date'])
+        
+        # 获取新股信息（通过查询所有股票，然后筛选）
+        rs = bs.query_stock_basic()
+        data_list = []
+        while (rs.error_code == '0') & rs.next():
+            data_list.append(rs.get_row_data())
+        df = pd.DataFrame(data_list, columns=rs.fields)
+        
+        # 筛选新股
+        today = datetime.now().strftime('%Y-%m-%d')
+        df = df[df['ipoDate'] == today]
         
         if not df.empty:
             # 重命名列为标准格式
             df = df.rename(columns={
-                'ts_code': 'code',
-                'name': 'name',
-                'price': 'issue_price',
-                'pe': 'pe_ratio',
-                'limit': 'max_purchase',
-                'amount': 'total_shares',
-                'mktcap': 'market_cap',
-                'ex_date': 'issue_date'
+                'code': 'code',
+                'code_name': 'name',
+                'ipoDate': 'issue_date'
             })
+            # 添加默认值
+            df['issue_price'] = 0.0
+            df['max_purchase'] = 0
             
-            # 只保留需要的列
-            df = df[['code', 'name', 'issue_price', 'max_purchase', 'issue_date']]
-            
-            return df
-    except Exception as e:
-        logger.error(f"获取新股申购信息失败: {str(e)}")
-    
-    # 如果Tushare失败，尝试其他数据源
-    try:
-        # 备用数据源：东方财富
-        eastmoney_url = "http://data.eastmoney.com/xg/xg/"
-        response = requests.get(eastmoney_url, timeout=15)
-        soup = BeautifulSoup(response.text, 'html.parser')
+            logger.info(f"从Baostock成功获取 {len(df)} 条新股信息")
+            return df[['code', 'name', 'issue_price', 'max_purchase', 'issue_date']]
         
-        # 提取新股申购信息
+        logger.warning("Baostock返回空数据，尝试下一个数据源...")
+    except Exception as e:
+        logger.error(f"Baostock获取新股申购信息失败: {str(e)}")
+    finally:
+        try:
+            bs.logout()
+        except:
+            pass
+    
+    # 尝试新浪财经（备用数据源2）
+    try:
+        logger.info("尝试从新浪财经获取新股申购信息...")
+        sina_url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=1&num=100&sort=symbol&asc=1&node=iponew&symbol=&_s_r_a=page"
+        response = requests.get(sina_url, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        
         new_stocks = []
-        table = soup.find('table', {'id': 'tb'})
-        if table:
-            rows = table.find_all('tr')[1:]  # 跳过表头
-            for row in rows:
-                cols = row.find_all('td')
-                if len(cols) >= 5:
-                    code = cols[1].text.strip()
-                    name = cols[2].text.strip()
-                    issue_price = cols[3].text.strip()
-                    max_purchase = cols[4].text.strip()
-                    issue_date = cols[5].text.strip()
-                    
-                    # 只保留今天可申购的
-                    if issue_date == datetime.now().strftime('%Y-%m-%d'):
-                        new_stocks.append({
-                            'code': code,
-                            'name': name,
-                            'issue_price': issue_price,
-                            'max_purchase': max_purchase,
-                            'issue_date': issue_date
-                        })
+        if data:
+            for item in data:
+                code = item.get('symbol', '')
+                name = item.get('name', '')
+                issue_price = item.get('price', '')
+                max_purchase = item.get('limit', '')
+                issue_date = item.get('issue_date', '')
+                
+                # 只保留今天可申购的
+                if issue_date == datetime.now().strftime('%Y-%m-%d'):
+                    new_stocks.append({
+                        'code': code,
+                        'name': name,
+                        'issue_price': issue_price,
+                        'max_purchase': max_purchase,
+                        'issue_date': issue_date
+                    })
         
         if new_stocks:
+            logger.info(f"从新浪财经成功获取 {len(new_stocks)} 条新股信息")
             return pd.DataFrame(new_stocks)
+        else:
+            logger.warning("新浪财经返回空数据，所有数据源均失败")
     except Exception as e:
-        logger.error(f"从东方财富获取新股申购信息失败: {str(e)}")
+        logger.error(f"新浪财经获取新股申购信息失败: {str(e)}")
     
+    # 所有数据源均失败，返回空DataFrame
+    logger.error("所有数据源均无法获取新股申购信息")
     return pd.DataFrame(columns=['code', 'name', 'issue_price', 'max_purchase', 'issue_date'])
 
 def is_new_stock_info_pushed():
