@@ -77,7 +77,7 @@ def get_cache_path(etf_code, data_type='daily'):
     返回:
         str: 缓存文件路径
     """
-    # 修复循环导入：将Config导入移到函数内部
+    # 动态导入Config，避免循环导入问题
     from config import Config
     
     base_path = os.path.join(Config.RAW_DATA_DIR, 'etf_data')
@@ -98,7 +98,7 @@ def load_from_cache(etf_code, data_type='daily', days=30):
     返回:
         DataFrame: 缓存数据或None（如果不可用）
     """
-    # 修复循环导入：将Config导入移到函数内部
+    # 动态导入Config，避免循环导入问题
     from config import Config
     
     cache_path = get_cache_path(etf_code, data_type)
@@ -122,7 +122,7 @@ def save_to_cache(etf_code, data, data_type='daily'):
          DataFrame数据
         data_type: 'daily'或'intraday'
     """
-    # 修复循环导入：将Config导入移到函数内部
+    # 动态导入Config，避免循环导入问题
     from config import Config
     
     cache_path = get_cache_path(etf_code, data_type)
@@ -499,7 +499,7 @@ def get_new_stock_subscriptions():
     返回:
         DataFrame: 当天可申购的新股信息
     """
-    # 修复循环导入：将Config导入移到函数内部
+    # 动态导入Config，避免循环导入问题
     from config import Config
     
     # 尝试AkShare（主数据源）
@@ -618,14 +618,14 @@ def get_new_stock_subscriptions():
 
 def is_new_stock_info_pushed():
     """检查是否已经推送过新股信息"""
-    # 修复循环导入：将Config导入移到函数内部
+    # 动态导入Config，避免循环导入问题
     from config import Config
     
     return os.path.exists(Config.NEW_STOCK_INFO_PUSHED_FLAG)
 
 def mark_new_stock_info_pushed():
     """标记新股信息已推送"""
-    # 修复循环导入：将Config导入移到函数内部
+    # 动态导入Config，避免循环导入问题
     from config import Config
     
     with open(Config.NEW_STOCK_INFO_PUSHED_FLAG, 'w') as f:
@@ -633,7 +633,7 @@ def mark_new_stock_info_pushed():
 
 def clear_new_stock_pushed_flag():
     """清除新股信息推送标记"""
-    # 修复循环导入：将Config导入移到函数内部
+    # 动态导入Config，避免循环导入问题
     from config import Config
     
     if os.path.exists(Config.NEW_STOCK_INFO_PUSHED_FLAG):
@@ -641,7 +641,7 @@ def clear_new_stock_pushed_flag():
 
 def get_new_stock_retry_time():
     """获取新股信息重试时间"""
-    # 修复循环导入：将Config导入移到函数内部
+    # 动态导入Config，避免循环导入问题
     from config import Config
     
     if os.path.exists(Config.NEW_STOCK_RETRY_FLAG):
@@ -655,7 +655,7 @@ def get_new_stock_retry_time():
 
 def set_new_stock_retry():
     """设置新股信息重试"""
-    # 修复循环导入：将Config导入移到函数内部
+    # 动态导入Config，避免循环导入问题
     from config import Config
     
     with open(Config.NEW_STOCK_RETRY_FLAG, 'w') as f:
@@ -666,7 +666,7 @@ def set_new_stock_retry():
 
 def clear_new_stock_retry_flag():
     """清除新股信息重试标记"""
-    # 修复循环导入：将Config导入移到函数内部
+    # 动态导入Config，避免循环导入问题
     from config import Config
     
     if os.path.exists(Config.NEW_STOCK_RETRY_FLAG):
