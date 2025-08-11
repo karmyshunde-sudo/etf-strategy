@@ -715,8 +715,8 @@ def get_test_new_stock_subscriptions():
                     data = response.json()
                     
                     new_stocks = []
-                    if 
-                        for item in 
+                    if data:  # 修复点：添加了 data 作为条件
+                        for item in data:  # 修复点：添加了 data 作为迭代对象
                             code = item.get('symbol', '')
                             name = item.get('name', '')
                             issue_price = item.get('price', '')
