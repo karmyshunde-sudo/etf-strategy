@@ -7,7 +7,7 @@
 from flask import request, jsonify
 from config import Config
 from scoring import generate_stock_pool, get_current_stock_pool, get_top_n_etfs
-from calculation import push_strategy_results
+from calculation import push_strategy_results, calculate_etf_strategy
 from wecom import send_wecom_message
 from logger import get_logger
 from time_utils import get_beijing_time, convert_to_beijing_time, is_trading_day, is_trading_time
@@ -79,6 +79,24 @@ def cron_push_strategy():
     
     success = push_strategy_results()
     return jsonify({"status": "success" if success else "skipped"})
+
+def push_strategy():
+    """
+    执行策略计算并推送结果（独立函数，供main.py调用）
+    返回:
+        dict: 执行结果
+    """
+    try:
+        success = push_strategy_results()
+        if success:
+            logger.info("策略执行成功")
+            return {"status": "success", "message": "Strategy pushed"}
+        else:
+            logger.warning("策略执行被跳过")
+            return {"status": "skipped", "message": "Strategy skipped"}
+    except Exception as e:
+        logger.error(f"策略执行失败: {str(e)}")
+        return {"status": "error", "message": str(e)}
 
 def cron_arbitrage_scan():
     """套利扫描任务"""
@@ -268,6 +286,7 @@ def test_reset():
 def test_new_stock():
     """T07: 测试推送新股信息（只推送当天可申购的新股）"""
     # 获取测试用的新股信息
+    from crawler import get_test_new_stock_subscriptions, format_new_stock_subscriptions_message
     new_stocks = get_test_new_stock_subscriptions()
     
     # 检查是否获取到新股数据
@@ -292,12 +311,11 @@ def test_new_stock():
 def test_new_stock_info():
     """T08: 测试推送所有新股申购信息"""
     # 获取测试数据
-    from crawler import get_test_new_stock_subscriptions
+    from crawler import get_test_new_stock_subscriptions, format_new_stock_subscriptions_message
     new_stocks = get_test_new_stock_subscriptions()
     
     # 推送新股信息
     if not new_stocks.empty:
-        from crawler import format_new_stock_subscriptions_message
         message = "【测试消息】T08: 测试推送所有新股申购信息\n" + format_new_stock_subscriptions_message(new_stocks)
         send_wecom_message(message)
     
@@ -310,3 +328,26 @@ def health_check():
         "timestamp": get_beijing_time().isoformat(),
         "environment": "production"
     })
+
+def calculate_strategy(code, name, etf_type):
+    """
+    计算单个ETF的策略信号
+    参数:
+        code: ETF代码
+        name: ETF名称
+        etf_type: ETF类型 ('stable'或'aggressive')
+    返回:
+        dict: 策略信号
+    """
+    try:
+        # 严格调用实际策略计算函数，无任何示例逻辑
+        return calculate_etf_strategy(code, name, etf_type)
+    except Exception as e:
+        logger.error(f"计算ETF策略失败 {code}: {str(e)}")
+        # 返回安全的默认值，但不包含任何示例逻辑
+        return {
+            'action': 'hold',
+            'position': 0,
+            'total_score': 0,
+            'rationale': f'策略计算失败: {str(e)}'
+        }
