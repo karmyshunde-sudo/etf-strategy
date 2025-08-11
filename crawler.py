@@ -590,3 +590,52 @@ def clear_new_stock_retry_flag():
     """清除新股信息重试标记"""
     if os.path.exists(Config.NEW_STOCK_RETRY_FLAG):
         os.remove(Config.NEW_STOCK_RETRY_FLAG)
+
+def get_test_new_stock_subscriptions():
+    """
+    获取测试用的新股申购信息（从真实数据源获取）
+    返回:
+        DataFrame: 测试数据（包含最近的新股信息）
+    """
+    # 尝试获取当天的新股信息
+    new_stocks = get_new_stock_subscriptions()
+    
+    # 如果当天没有新股，尝试获取最近有新股的日期
+    if new_stocks.empty:
+        from datetime import datetime, timedelta
+        
+        # 尝试过去7天
+        for i in range(1, 8):
+            date_str = (datetime.now() - timedelta(days=i)).strftime('%Y%m%d')
+            try:
+                # 使用Tushare获取历史新股数据
+                ts.set_token(Config.TUSHARE_TOKEN)
+                pro = ts.pro_api()
+                df = pro.new_share(start_date=date_str, end_date=date_str)
+                
+                if not df.empty:
+                    # 重命名列为标准格式
+                    df = df.rename(columns={
+                        'ts_code': 'code',
+                        'name': 'name',
+                        'price': 'issue_price',
+                        'pe': 'pe_ratio',
+                        'limit': 'max_purchase',
+                        'amount': 'total_shares',
+                        'mktcap': 'market_cap',
+                        'ex_date': 'issue_date'
+                    })
+                    
+                    # 只保留需要的列
+                    df = df[['code', 'name', 'issue_price', 'max_purchase', 'issue_date']]
+                    
+                    # 添加历史标记
+                    df['issue_date'] = df['issue_date'].apply(lambda x: f"{x} (历史数据)")
+                    
+                    logger.info(f"使用{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}的历史新股数据进行测试")
+                    return df
+            except Exception as e:
+                logger.error(f"获取{date_str}新股申购信息失败: {str(e)}")
+    
+    # 如果有当天的新股，直接返回
+    return new_stocks
