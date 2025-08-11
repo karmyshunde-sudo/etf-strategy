@@ -219,57 +219,6 @@ def crawl_sina_finance(etf_code):
         logger.error(f"新浪财经爬取错误 {etf_code}: {str(e)}")
         return None
 
-def crawl_tushare(etf_code):
-    """
-    从Tushare爬取ETF数据（备用数据源3）
-    参数:
-        etf_code: ETF代码
-    返回:
-        DataFrame: ETF数据或None（如果失败）
-    """
-    try:
-        # 设置Tushare token
-        ts.set_token(Config.TUSHARE_TOKEN)
-        pro = ts.pro_api()
-        
-        # 获取ETF基础信息
-        basic_info = pro.fund_basic(market='E', status='L')
-        etf_info = basic_info[basic_info['ts_code'].str.startswith(etf_code)]
-        
-        if etf_info.empty:
-            logger.warning(f"Tushare未找到{etf_code}的基础信息")
-            return None
-        
-        # 获取ETF日线数据
-        df = pro.fund_daily(ts_code=etf_info['ts_code'].values[0], 
-                           start_date=(datetime.now() - timedelta(days=100)).strftime('%Y%m%d'),
-                           end_date=datetime.now().strftime('%Y%m%d'))
-        
-        if df.empty:
-            logger.warning(f"Tushare未找到{etf_code}的日线数据")
-            return None
-        
-        # 重命名列为标准格式
-        df = df.rename(columns={
-            'trade_date': 'date',
-            'open': 'open',
-            'high': 'high',
-            'low': 'low',
-            'close': 'close',
-            'vol': 'volume'
-        })
-        
-        # 转换日期格式
-        df['date'] = pd.to_datetime(df['date'].astype(str), format='%Y%m%d')
-        
-        # 按日期排序
-        df = df.sort_values('date', ascending=True).reset_index(drop=True)
-        
-        return df
-    except Exception as e:
-        logger.error(f"Tushare爬取错误 {etf_code}: {str(e)}")
-        return None
-
 def get_etf_data(etf_code, data_type='daily'):
     """
     从多数据源获取ETF数据（带自动回退机制）
@@ -303,13 +252,6 @@ def get_etf_data(etf_code, data_type='daily'):
     data = crawl_sina_finance(etf_code)
     if data is not None and not data.empty:
         logger.info(f"成功从新浪财经爬取{etf_code}数据")
-        save_to_cache(etf_code, data, data_type)
-        return data
-    
-    # 尝试备用数据源3(Tushare)
-    data = crawl_tushare(etf_code)
-    if data is not None and not data.empty:
-        logger.info(f"成功从Tushare爬取{etf_code}数据")
         save_to_cache(etf_code, data, data_type)
         return data
     
@@ -675,7 +617,7 @@ def clear_new_stock_retry_flag():
 
 def get_test_new_stock_subscriptions():
     """
-    获取测试用的新股申购信息（从真实数据源获取）
+    获取测试用的新股申购信息（从真实数据源获取，失败时使用历史数据）
     返回:
         DataFrame: 测试数据（包含最近的新股信息）
     """
@@ -684,40 +626,132 @@ def get_test_new_stock_subscriptions():
     
     # 如果当天没有新股，尝试获取最近有新股的日期
     if new_stocks.empty:
-        from datetime import datetime, timedelta
+        logger.warning("当天无新股申购，尝试获取历史数据...")
+        from datetime import timedelta
         
         # 尝试过去7天
         for i in range(1, 8):
             date_str = (datetime.now() - timedelta(days=i)).strftime('%Y%m%d')
             try:
-                # 使用Tushare获取历史新股数据
-                ts.set_token(Config.TUSHARE_TOKEN)
-                pro = ts.pro_api()
-                df = pro.new_share(start_date=date_str, end_date=date_str)
+                # 尝试AkShare（主数据源）
+                logger.info(f"尝试从AkShare获取{date_str}的历史新股数据...")
+                df = ak.stock_ipo_cninfo()
                 
                 if not df.empty:
-                    # 重命名列为标准格式
-                    df = df.rename(columns={
-                        'ts_code': 'code',
-                        'name': 'name',
-                        'price': 'issue_price',
-                        'pe': 'pe_ratio',
-                        'limit': 'max_purchase',
-                        'amount': 'total_shares',
-                        'mktcap': 'market_cap',
-                        'ex_date': 'issue_date'
-                    })
+                    # 筛选指定日期
+                    df = df[df['网上申购日'] == f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"]
                     
-                    # 只保留需要的列
-                    df = df[['code', 'name', 'issue_price', 'max_purchase', 'issue_date']]
+                    if not df.empty:
+                        # 重命名列为标准格式
+                        df = df.rename(columns={
+                            '证券代码': 'code',
+                            '证券简称': 'name',
+                            '发行价格': 'issue_price',
+                            '申购上限': 'max_purchase',
+                            '网上申购日': 'issue_date'
+                        })
+                        # 转换数据类型
+                        df['issue_price'] = df['issue_price'].astype(float)
+                        df['max_purchase'] = df['max_purchase'].astype(int)
+                        
+                        # 添加历史标记
+                        df['issue_date'] = df['issue_date'].apply(
+                            lambda x: f"{x} (历史数据，{date_str[:4]}-{date_str[4:6]}-{date_str[6:]})"
+                        )
+                        
+                        logger.info(f"从AkShare成功获取 {len(df)} 条历史新股信息")
+                        return df[['code', 'name', 'issue_price', 'max_purchase', 'issue_date']]
+                
+                # 尝试Baostock（备用数据源1）
+                try:
+                    logger.info(f"尝试从Baostock获取{date_str}的历史新股数据...")
+                    # Baostock没有直接获取新股申购的API，通过股票基本信息筛选
+                    login_result = bs.login()
+                    if login_result.error_code != '0':
+                        raise Exception("Baostock登录失败")
                     
-                    # 添加历史标记
-                    df['issue_date'] = df['issue_date'].apply(lambda x: f"{x} (历史数据)")
+                    rs = bs.query_stock_basic()
+                    data_list = []
+                    while (rs.error_code == '0') & rs.next():
+                        data_list.append(rs.get_row_data())
+                    df = pd.DataFrame(data_list, columns=rs.fields)
                     
-                    logger.info(f"使用{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}的历史新股数据进行测试")
-                    return df
+                    # 筛选新股
+                    df = df[df['ipoDate'] == date_str]
+                    if not df.empty:
+                        # 重命名列为标准格式
+                        df = df.rename(columns={
+                            'code': 'code',
+                            'code_name': 'name',
+                            'ipoDate': 'issue_date'
+                        })
+                        # 添加默认值
+                        df['issue_price'] = 0.0
+                        df['max_purchase'] = 0
+                        
+                        # 添加历史标记
+                        df['issue_date'] = df['issue_date'].apply(
+                            lambda x: f"{x} (历史数据，{date_str[:4]}-{date_str[4:6]}-{date_str[6:]})"
+                        )
+                        
+                        logger.info(f"从Baostock成功获取 {len(df)} 条历史新股信息")
+                        return df[['code', 'name', 'issue_price', 'max_purchase', 'issue_date']]
+                    
+                    bs.logout()
+                
+                except Exception as e:
+                    logger.error(f"Baostock获取历史新股数据失败: {str(e)}")
+                    try:
+                        bs.logout()
+                    except:
+                        pass
+                
+                # 尝试新浪财经（备用数据源2）
+                try:
+                    logger.info(f"尝试从新浪财经获取{date_str}的历史新股数据...")
+                    sina_url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=1&num=100&sort=symbol&asc=1&node=iponew&symbol=&_s_r_a=page"
+                    response = requests.get(sina_url, timeout=15)
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    new_stocks = []
+                    if 
+                        for item in 
+                            code = item.get('symbol', '')
+                            name = item.get('name', '')
+                            issue_price = item.get('price', '')
+                            max_purchase = item.get('limit', '')
+                            issue_date = item.get('issue_date', '')
+                            
+                            # 检查日期匹配
+                            if issue_date == f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}":
+                                new_stocks.append({
+                                    'code': code,
+                                    'name': name,
+                                    'issue_price': issue_price,
+                                    'max_purchase': max_purchase,
+                                    'issue_date': issue_date
+                                })
+                    
+                    if new_stocks:
+                        df = pd.DataFrame(new_stocks)
+                        # 添加历史标记
+                        df['issue_date'] = df['issue_date'].apply(
+                            lambda x: f"{x} (历史数据，{date_str[:4]}-{date_str[4:6]}-{date_str[6:]})"
+                        )
+                        
+                        logger.info(f"从新浪财经成功获取 {len(df)} 条历史新股信息")
+                        return df
+                except Exception as e:
+                    logger.error(f"新浪财经获取历史新股数据失败: {str(e)}")
+            
             except Exception as e:
-                logger.error(f"获取{date_str}新股申购信息失败: {str(e)}")
+                logger.error(f"获取{date_str}历史新股数据失败: {str(e)}")
     
-    # 如果有当天的新股，直接返回
+    # 如果有当天的新股，添加测试标记
+    if not new_stocks.empty:
+        new_stocks['issue_date'] = new_stocks['issue_date'].apply(
+            lambda x: f"{x} (测试数据)"
+        )
+    
     return new_stocks
