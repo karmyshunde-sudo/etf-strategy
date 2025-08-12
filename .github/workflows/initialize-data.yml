@@ -11,7 +11,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: main
-          fetch-depth: 0
+          fetch-depth: 0  # 确保能推送变更
       
       - name: Create data directories
         run: |
@@ -29,7 +29,7 @@ jobs:
       
       - name: Commit and push data directories
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITH_TOKEN }}  # 修改此处
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
