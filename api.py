@@ -321,3 +321,9 @@ def calculate_strategy(code, name, etf_type):
             'total_score': 0,
             'rationale': f'策略计算失败: {str(e)}'
         }
+
+__all__ = [
+    'register_api', 'test_message', 'test_new_stock', 'test_stock_pool',
+    'test_execute', 'test_reset', 'cron_new_stock_info_api', 'push_strategy',
+    'update_stock_pool', 'crawl_daily', 'cleanup'
+]
