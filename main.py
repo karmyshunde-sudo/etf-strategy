@@ -59,7 +59,7 @@ def main():
     from logger import get_logger
     from time_utils import is_trading_day, get_beijing_time
     from api import register_api, test_message, test_new_stock, test_stock_pool
-    from api import test_execute, test_reset, cron_new_stock_info, push_strategy
+    from api import test_execute, test_reset, cron_new_stock_info_api, push_strategy
     from api import update_stock_pool, crawl_daily, cleanup
     
     # 初始化日志
@@ -115,7 +115,8 @@ def main():
         elif task == 'run_new_stock_info':
             # 每日 9:30 新股信息推送
             logger.info("开始执行: 每日新股信息推送")
-            result = cron_new_stock_info()
+            from crawler import run_new_stock_info_task
+            result = run_new_stock_info_task()
             logger.info(f"任务执行结果: {result}")
             
         elif task == 'push_strategy':
