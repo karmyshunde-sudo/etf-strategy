@@ -93,7 +93,6 @@ import baostock as bs
 from flask import Flask, request, jsonify
 from config import Config
 from logger import get_logger
-from scoring import generate_stock_pool, get_current_stock_pool, get_top_n_etfs, calculate_ETF_score
 from calculation import push_strategy_results, calculate_etf_strategy
 from bs4 import BeautifulSoup
 
