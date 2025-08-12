@@ -250,12 +250,12 @@ def send_wecom_message(message):
         bool: 是否成功
     """
     # 检查配置
-    if not Config.WECOM_WEBHOOK:
+    if not hasattr(Config, 'WECOM_WEBHOOK') or not Config.WECOM_WEBHOOK:
         logger.error("WECOM_WEBHOOK 未设置，无法发送企业微信消息")
         return False
     
     # 在消息结尾添加全局备注
-    if Config.MESSAGE_FOOTER:
+    if hasattr(Config, 'MESSAGE_FOOTER') and Config.MESSAGE_FOOTER:
         message = f"{message}\n\n{Config.MESSAGE_FOOTER}"
     
     try:
@@ -817,8 +817,16 @@ def update_stock_pool():
     return stock_pool
 
 def _is_test_request():
-    """判断是否是测试请求"""
-    return request.args.get('test', 'false').lower() == 'true'
+    """判断是否是测试请求（兼容非请求环境）"""
+    try:
+        # 尝试获取 Flask 请求参数
+        return request.args.get('test', 'false').lower() == 'true'
+    except RuntimeError:
+        # 非请求环境（如 GitHub Actions）返回默认值
+        return False
+    except:
+        # 其他异常情况也返回默认值
+        return False
 
 def _format_message(message, test=False):
     """格式化消息，测试请求添加标识"""
@@ -1896,15 +1904,29 @@ def cron_new_stock_info():
 @app.route('/test/message', methods=['GET'])
 def test_message():
     """T01: 测试消息推送"""
+    # 判断是否是测试请求
     test = _is_test_request()
-    beijing_time = get_beijing_time().strftime('%Y-%m-%d %H:%M')
-    message = _format_message(
-        f"CF系统时间：{beijing_time}\n这是来自鱼盆ETF系统的测试消息。\nT01: 测试消息推送。",
-        test=test
-    )
     
-    send_wecom_message(message)
-    return jsonify({"status": "success", "message": "Test message sent"})
+    # 获取当前北京时间
+    beijing_time = get_beijing_time().strftime('%Y-%m-%d %H:%M')
+    
+    # 构建测试消息
+    message = f"CF系统时间：{beijing_time}\n这是来自鱼盆ETF系统的测试消息。\nT01: 测试消息推送。"
+    
+    # 如果是测试请求，添加测试标识
+    if test:
+        message = f"【测试消息】\n{message}"
+    
+    # 发送消息并记录结果
+    logger.info(f"准备发送测试消息: {message[:100]}...")
+    success = send_wecom_message(message)
+    
+    if success:
+        logger.info("测试消息发送成功")
+        return jsonify({"status": "success", "message": "Test message sent"})
+    else:
+        logger.error("测试消息发送失败")
+        return jsonify({"status": "error", "message": "Failed to send test message"})
 
 @app.route('/test/strategy', methods=['GET'])
 def test_strategy():
@@ -2116,23 +2138,119 @@ def run_task(task):
     try:
         if task == 'test_message':
             # T01: 测试消息推送
-            return test_message()
+            logger.info("执行测试消息推送任务")
+            # 直接构造测试消息
+            beijing_time = get_beijing_time().strftime('%Y-%m-%d %H:%M')
+            message = f"【测试消息】\nT01: 测试消息推送\nCF系统时间：{beijing_time}\n这是来自鱼盆ETF系统的测试消息。"
+            
+            # 发送消息
+            success = send_wecom_message(message)
+            
+            if success:
+                logger.info("测试消息推送成功")
+                return {"status": "success", "message": "Test message sent"}
+            else:
+                logger.error("测试消息推送失败")
+                return {"status": "error", "message": "Failed to send test message"}
         
         elif task == 'test_new_stock':
             # T07: 测试推送新股信息
-            return test_new_stock()
+            logger.info("执行测试新股信息推送任务")
+            # 获取测试用的新股信息
+            new_stocks = get_test_new_stock_subscriptions()
+            
+            # 检查是否获取到新股数据
+            if new_stocks.empty:
+                logger.error("测试错误：未获取到任何新股信息")
+                return {"status": "error", "message": "No test new stocks available"}
+            
+            # 格式化消息
+            message = "【测试消息】\nT07: 测试推送新股信息（只推送当天可申购的新股）\n"
+            message += format_new_stock_subscriptions_message(new_stocks)
+            
+            # 发送消息
+            success = send_wecom_message(message)
+            
+            if success:
+                logger.info("测试新股信息推送成功")
+                return {"status": "success", "message": "Test new stocks sent"}
+            else:
+                logger.error("测试新股信息推送失败")
+                return {"status": "error", "message": "Failed to send test new stocks"}
         
         elif task == 'test_stock_pool':
             # T04: 测试推送当前股票池
-            return test_stock_pool()
+            logger.info("执行测试股票池推送任务")
+            # 获取当前股票池
+            stock_pool = get_current_stock_pool()
+            
+            if stock_pool is None or stock_pool.empty:
+                logger.error("股票池为空，无法推送")
+                return {"status": "error", "message": "No stock pool available"}
+            
+            # 格式化消息
+            message = "【测试消息】\n" + _format_stock_pool_message(stock_pool, test=True)
+            
+            # 发送消息
+            success = send_wecom_message(message)
+            
+            if success:
+                logger.info("测试股票池推送成功")
+                return {"status": "success", "message": "Stock pool pushed"}
+            else:
+                logger.error("测试股票池推送失败")
+                return {"status": "error", "message": "Failed to push stock pool"}
         
         elif task == 'test_execute':
             # T05: 执行策略并推送结果
-            return test_execute()
+            logger.info("执行测试策略推送任务")
+            # 调用核心策略计算函数
+            success = push_strategy_results(test=True)
+            
+            if success:
+                logger.info("测试策略推送成功")
+                return {"status": "success", "message": "Strategy executed"}
+            else:
+                logger.error("测试策略推送失败")
+                return {"status": "error", "message": "Failed to execute strategy"}
         
         elif task == 'test_reset':
             # T06: 重置所有仓位
-            return test_reset()
+            logger.info("执行测试重置仓位任务")
+            # 获取当前股票池
+            stock_pool = get_current_stock_pool()
+            
+            if stock_pool is None or stock_pool.empty:
+                logger.error("股票池为空，无法重置仓位")
+                return {"status": "error", "message": "No stock pool available"}
+            
+            # 创建重置信号
+            beijing_time = get_beijing_time().strftime('%Y-%m-%d %H:%M')
+            for _, etf in stock_pool.iterrows():
+                etf_type = 'stable' if etf['type'] == '稳健仓' else 'aggressive'
+                signal = {
+                    'etf_code': etf['code'],
+                    'etf_name': etf['name'],
+                    'cf_time': beijing_time,
+                    'action': 'strong_sell',
+                    'position': 0,
+                    'rationale': '测试重置仓位'
+                }
+                
+                # 格式化消息
+                message = "【测试消息】\n" + _format_strategy_signal(signal, test=True)
+                
+                # 推送消息
+                send_wecom_message(message)
+                
+                # 记录交易
+                log_trade(signal)
+                
+                # 间隔1分钟
+                time.sleep(60)
+            
+            logger.info("测试重置仓位完成")
+            return {"status": "success", "message": "All positions reset"}
         
         elif task == 'run_new_stock_info':
             # 每日 9:30 新股信息推送
