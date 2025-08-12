@@ -98,6 +98,18 @@ def cron_cleanup():
     cleanup_old_data()
     return jsonify({"status": "success", "message": "Old data cleaned"})
 
+def push_strategy():
+    """定时推送策略信号（每日 14:50）"""
+    # 检查是否为交易日
+    if not is_trading_day():
+        logger.info("今天不是交易日，跳过策略推送")
+        return {"status": "skipped", "message": "Not trading day"}
+    
+    # 调用核心策略计算函数
+    success = push_strategy_results()
+    
+    return {"status": "success" if success else "error"}
+
 def cron_new_stock_info_api():
     """API端点：定时推送新股信息"""
     if request.args.get('secret') != Config.CRON_SECRET:
