@@ -1303,10 +1303,8 @@ def get_new_stock_subscriptions():
         df = ak.stock_ipo_cninfo()
         if not df.empty:
             today = datetime.datetime.now().strftime('%Y-%m-%d')
-            # 筛选当天可申购的新股（不进行证券类型过滤）
             df = df[df['网上申购日'] == today]
             if not df.empty:
-                # 重命名列为标准格式
                 df = df.rename(columns={
                     '证券代码': 'code',
                     '证券简称': 'name',
@@ -1314,7 +1312,6 @@ def get_new_stock_subscriptions():
                     '申购上限': 'max_purchase',
                     '网上申购日': 'issue_date'
                 })
-                # 转换数据类型
                 df['issue_price'] = df['issue_price'].astype(float)
                 df['max_purchase'] = df['max_purchase'].astype(int)
                 logger.info(f"从AkShare成功获取 {len(df)} 条新股信息")
@@ -1330,25 +1327,20 @@ def get_new_stock_subscriptions():
         if login_result.error_code != '0':
             logger.error(f"Baostock登录失败: {login_result.error_msg}")
             return pd.DataFrame(columns=['code', 'name', 'issue_price', 'max_purchase', 'issue_date'])
-        
-        # 获取新股信息（不进行证券类型过滤）
         rs = bs.query_stock_basic()
         data_list = []
         while (rs.error_code == '0') & rs.next():
             data_list.append(rs.get_row_data())
         df = pd.DataFrame(data_list, columns=rs.fields)
-        
+        thirty_days_ago = (datetime.datetime.now() - datetime.timedelta(days=30)).strftime('%Y-%m-%d')
         today = datetime.datetime.now().strftime('%Y-%m-%d')
-        # 筛选当天上市的新股
-        df = df[df['ipoDate'] == today]
+        df = df[(df['ipoDate'] >= thirty_days_ago) & (df['ipoDate'] <= today)]
         if not df.empty:
-            # 重命名列为标准格式
             df = df.rename(columns={
                 'code': 'code',
                 'code_name': 'name',
                 'ipoDate': 'issue_date'
             })
-            # 添加默认值
             df['issue_price'] = 0.0
             df['max_purchase'] = 0
             logger.info(f"从Baostock成功获取 {len(df)} 条新股信息")
@@ -1369,17 +1361,14 @@ def get_new_stock_subscriptions():
         response = requests.get(sina_url, timeout=15)
         response.raise_for_status()
         data = response.json()
-        
         new_stocks = []
-        if 
-            for item in 
+        if data:
+            for item in data:
                 code = item.get('symbol', '')
                 name = item.get('name', '')
                 issue_price = item.get('price', '')
                 max_purchase = item.get('limit', '')
                 issue_date = item.get('issue_date', '')
-                
-                # 只保留今天可申购或上市的（不进行证券类型过滤）
                 if issue_date == datetime.datetime.now().strftime('%Y-%m-%d'):
                     new_stocks.append({
                         'code': code,
@@ -1388,7 +1377,6 @@ def get_new_stock_subscriptions():
                         'max_purchase': max_purchase,
                         'issue_date': issue_date
                     })
-        
         if new_stocks:
             logger.info(f"从新浪财经成功获取 {len(new_stocks)} 条新股信息")
             return pd.DataFrame(new_stocks)
@@ -1397,7 +1385,6 @@ def get_new_stock_subscriptions():
     except Exception as e:
         logger.error(f"新浪财经获取新股申购信息失败: {str(e)}")
     
-    # 所有数据源均失败，返回空DataFrame
     logger.error("所有数据源均无法获取新股申购信息")
     return pd.DataFrame(columns=['code', 'name', 'issue_price', 'max_purchase', 'issue_date'])
 
@@ -1412,23 +1399,20 @@ def format_new_stock_subscriptions_message(new_stocks):
     if new_stocks.empty:
         return "今日无新股可申购"
     
-    # 仅包含新股基本信息，不涉及任何ETF评分
     message = "【今日新股申购信息】\n"
     for _, row in new_stocks.iterrows():
-        # 确保只使用新股基本信息
         code = row.get('code', '')
         name = row.get('name', '')
         issue_price = row.get('issue_price', '')
         max_purchase = row.get('max_purchase', '')
         issue_date = row.get('issue_date', '')
         
-        # 格式化消息 - 仅包含新股基本信息
-        message += f"\n股票代码：{code}\n"
+        message += f"股票代码：{code}\n"
         message += f"股票名称：{name}\n"
         message += f"发行价格：{issue_price}元\n"
         message += f"申购上限：{max_purchase}股\n"
         message += f"申购日期：{issue_date}\n"
-        message += "─" * 20
+        message += "─" * 20 + "\n"
     
     return message
 
