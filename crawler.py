@@ -647,6 +647,68 @@ def format_new_stock_subscriptions_message(new_stocks):
     
     return message
 
+def push_new_stock_info():
+    """
+    推送当天可申购的新股信息到企业微信
+    返回:
+        bool: 是否成功推送
+    """
+    new_stocks = get_new_stock_subscriptions()
+    
+    # 检查是否获取到新股数据
+    if new_stocks.empty:
+        logger.info("今日无新股可申购，跳过推送")
+        return True  # 无新股不算失败
+    
+    # 格式化消息
+    message = "【新股申购信息】\n" + format_new_stock_subscriptions_message(new_stocks)
+    
+    # 发送消息
+    from wecom import send_wecom_message
+    success = send_wecom_message(message)
+    
+    # 标记已推送
+    if success:
+        mark_new_stock_info_pushed()
+    
+    return success
+
+def run_new_stock_info_task():
+    """
+    执行新股信息推送任务的核心逻辑（独立于API）
+    返回:
+        dict: 任务执行结果
+    """
+    logger = get_logger(__name__)
+    
+    # 检查是否为交易日
+    from time_utils import is_trading_day
+    if not is_trading_day():
+        logger.info("今天不是交易日，跳过新股信息推送")
+        return {"status": "skipped", "message": "Not trading day"}
+    
+    # 检查是否已经推送过
+    if is_new_stock_info_pushed():
+        logger.info("新股信息已推送，跳过")
+        return {"status": "skipped", "message": "Already pushed"}
+    
+    # 检查是否在重试时间前
+    retry_time = get_new_stock_retry_time()
+    if retry_time and retry_time > datetime.now():
+        logger.info(f"仍在重试等待期，下次尝试时间: {retry_time}")
+        return {"status": "skipped", "message": f"Retry after {retry_time}"}
+    
+    # 尝试推送
+    success = push_new_stock_info()
+    
+    # 如果失败，设置30分钟后重试
+    if not success:
+        logger.info("新股信息推送失败，30分钟后重试")
+        set_new_stock_retry()
+        return {"status": "retry", "message": "Will retry in 30 minutes"}
+    
+    return {"status": "success", "message": "New stock info pushed"}
+
 def is_new_stock_info_pushed():
     """检查是否已经推送过新股信息"""
     # 动态导入Config，避免循环导入问题
