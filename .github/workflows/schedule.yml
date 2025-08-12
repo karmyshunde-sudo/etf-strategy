@@ -1,30 +1,26 @@
 name: ETF Strategy Scheduler
 
-# 时区设置为北京时间
-env:
-  TZ: Asia/Shanghai
-
 on:
   schedule:
-    # 每个交易日 9:30 推送新股信息和新上市交易股票信息
-    - cron: '30 9 * * 1-5'
+    # 每个交易日 9:30 推送新股信息和新上市交易股票信息 (北京时间)
+    - cron: '30 1 * * 1-5'
     
     # 每个交易日 13:40 推送策略信号
-    - cron: '40 13 * * 1-5'
+    - cron: '40 5 * * 1-5'
     
     # 每周五 16:00 更新股票池
-    - cron: '0 16 * * 5'
+    - cron: '0 8 * * 5'
     
     # 每个交易日 15:30 爬取日线数据
-    - cron: '30 15 * * 1-5'
+    - cron: '30 7 * * 1-5'
     
-    # 盘中数据爬取（9:35,10:05,10:35,11:05,13:05,13:35,14:05,14:35）
-    - cron: '35 9,10,11,13,14 * * 1-5'
+    # 盘中数据爬取
+    - cron: '35 1,2,3,5,6 * * 1-5'
     
     # 每天 00:00 清理旧数据
-    - cron: '0 0 * * *'
+    - cron: '0 16 * * *'
   
-  # 允许手动触发，提供完整测试场景
+  # 允许手动触发
   workflow_dispatch:
     inputs:
       task:
@@ -33,31 +29,33 @@ on:
         default: 'run_new_stock_info'
         type: choice
         options:
-          - 'test_message'                 # T01: 测试消息推送
-          - 'test_new_stock'               # T07: 测试新股申购信息推送
-          - 'test_stock_pool'              # T04: 手动推送当前股票池
-          - 'test_execute'                 # T05: 执行策略并推送结果
-          - 'test_reset'                   # T06: 重置所有仓位
-          - 'run_new_stock_info'           # 每日 9:30 新股信息推送
-          - 'push_strategy'                # 每日 14:50 策略信号推送
-          - 'update_stock_pool'            # 每周五 16:00 更新股票池
-          - 'crawl_daily'                  # 每日 15:30 爬取日线数据
-          - 'crawl_intraday'               # 盘中数据爬取
-          - 'cleanup'                      # 每天 00:00 清理旧数据
+          - 'test_message'
+          - 'test_new_stock'
+          - 'test_stock_pool'
+          - 'test_execute'
+          - 'test_reset'
+          - 'run_new_stock_info'
+          - 'push_strategy'
+          - 'update_stock_pool'
+          - 'crawl_daily'
+          - 'crawl_intraday'
+          - 'cleanup'
 
 jobs:
   run-strategy:
     runs-on: ubuntu-latest
     permissions:
-      contents: read  # 移除写权限，因为我们不再推送更改
-      # 如果需要访问 secrets，保留以下权限
+      contents: write  # 必须是 write
       id-token: write
-      pull-requests: read
+      pull-requests: write
       
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        
+        with:
+          ref: main
+          fetch-depth: 0  # 确保能推送变更
+      
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
@@ -84,8 +82,12 @@ jobs:
           # 执行主程序
           python main.py
           
-          # 已移除Git推送操作，避免403错误
-          # 系统只需发送企业微信消息，无需修改仓库内容
+          # 提交数据变更到仓库
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add data/
+          git commit -m "自动更新策略数据 $(date)" || echo "No changes to commit"
+          git push || echo "Failed to push changes"
 
       - name: Verify execution
         run: |
