@@ -19,7 +19,7 @@
 
 2. 新股信息获取逻辑：
    - 区分两种新股类型：
-     * 认购新股（IPO申购）：通过网上申购日""筛选"
+     * 认购新股（IPO申购）：通过"网上申购日"筛选
      * 上市交易新股：通过"上市日期"筛选
    - 历史数据范围：过去30天（原为7天），确保覆盖最近上市交易的新股
    - 多数据源回退机制：确保即使主数据源失败也能获取数据
@@ -101,7 +101,7 @@ app = Flask(__name__)
 logger = get_logger(__name__)
 
 def get_beijing_time():
-    # 获取当前北京时间(UTC+8)
+    """获取当前北京时间(UTC+8)"""
     beijing_tz = pytz.timezone('Asia/Shanghai')
     return datetime.datetime.now(beijing_tz)
 
@@ -591,7 +591,7 @@ def crawl_sina_finance(etf_code):
         
         # 解析JSON响应
         data = response.json()
-          if not 
+        if not data:  # 修复：添加了条件表达式
             return None
         
         # 转换为DataFrame
@@ -726,7 +726,7 @@ def get_all_etf_list():
         response.raise_for_status()
         data = response.json()
         
-        if 
+        if data:  # 修复：添加了条件表达式
             etf_list = pd.DataFrame(data)
             etf_list = etf_list[['symbol', 'name']]
             etf_list.columns = ['code', 'name']
@@ -926,8 +926,8 @@ def get_new_stock_subscriptions():
         data = response.json()
         
         new_stocks = []
-        if 
-            for item in 
+        if data:  # 修复：添加了条件表达式
+            for item in data:  # 修复：添加了循环对象
                 code = item.get('symbol', '')
                 name = item.get('name', '')
                 issue_price = item.get('price', '')
@@ -1185,8 +1185,8 @@ def get_test_new_stock_subscriptions():
                     data = response.json()
                     
                     new_stocks = []
-                    if 
-                        for item in 
+                    if data:  # 修复：添加了条件表达式
+                        for item in data:  # 修复：添加了循环对象
                             code = item.get('symbol', '')
                             name = item.get('name', '')
                             issue_price = item.get('price', '')
