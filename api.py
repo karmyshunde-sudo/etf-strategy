@@ -322,6 +322,18 @@ def calculate_strategy(code, name, etf_type):
             'rationale': f'策略计算失败: {str(e)}'
         }
 
+def update_stock_pool():
+    """每周五 16:00 更新股票池"""
+    # 检查是否为周五
+    if datetime.now().weekday() != 4:
+        logger.info("今天不是周五，跳过股票池更新")
+        return {"status": "skipped", "message": "Not Friday"}
+    
+    # 调用核心股票池更新函数
+    success = generate_stock_pool()
+    
+    return {"status": "success" if success else "error"}
+
 __all__ = [
     'register_api', 'test_message', 'test_new_stock', 'test_stock_pool',
     'test_execute', 'test_reset', 'cron_new_stock_info_api', 'push_strategy',
