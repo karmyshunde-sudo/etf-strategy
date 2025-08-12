@@ -19,7 +19,7 @@
 
 2. 新股信息获取逻辑：
    - 区分两种新股类型：
-     * 认购新股（IPO申购）：通过"网上申购日"筛选
+     * 认购新股（IPO申购）：通过网上申购日""筛选"
      * 上市交易新股：通过"上市日期"筛选
    - 历史数据范围：过去30天（原为7天），确保覆盖最近上市交易的新股
    - 多数据源回退机制：确保即使主数据源失败也能获取数据
@@ -101,7 +101,7 @@ app = Flask(__name__)
 logger = get_logger(__name__)
 
 def get_beijing_time():
-    """获取当前北京时间(UTC+8)"""
+    ""获取当前北京时间(UTC+8)"""""""
     beijing_tz = pytz.timezone('Asia/Shanghai')
     return datetime.datetime.now(beijing_tz)
 
@@ -208,6 +208,219 @@ def send_wecom_message(message):
     except Exception as e:
         logger.error(f"发送企业微信消息时出错: {str(e)}")
         return False
+
+def calculate_strategy(code, name, etf_type):
+    """
+    计算单只ETF的策略信号
+    参数:
+        code: ETF代码
+        name: ETF名称
+        etf_type: ETF类型 ('stable'或'aggressive')
+    返回:
+        dict: 策略信号
+    """
+    try:
+        # 严格调用实际策略计算函数
+        return calculate_etf_strategy(code, name, etf_type)
+    except Exception as e:
+        logger.error(f"计算ETF策略失败 {code}: {str(e)}")
+        return {
+            'action': 'hold',
+            'position': 0,
+            'total_score': 0,
+            'rationale': f'策略计算失败: {str(e)}'
+        }
+
+def push_strategy_results(test=False):
+    """
+    计算策略信号并推送到企业微信
+    参数:
+        test: 是否为测试模式
+    返回:
+        bool: 是否成功
+    """
+    logger.info("开始策略计算与推送")
+    
+    # 获取当前股票池
+    stock_pool = get_current_stock_pool()
+    if stock_pool is None or stock_pool.empty:
+        logger.error("股票池为空，无法计算策略")
+        return False
+    
+    # 按ETF类型分组
+    stable_etfs = stock_pool[stock_pool['type'] == '稳健仓']
+    aggressive_etfs = stock_pool[stock_pool['type'] == '激进仓']
+    
+    # 计算并推送稳健仓策略
+    if not stable_etfs.empty:
+        logger.info(f"开始推送稳健仓策略（{len(stable_etfs)}只ETF）")
+        for _, etf in stable_etfs.iterrows():
+            signal = calculate_etf_strategy(etf['code'], etf['name'], 'stable')
+            # 格式化消息
+            message = _format_strategy_signal(signal, test=test)
+            
+            # 推送消息
+            if not test:
+                send_wecom_message(message)
+            
+            # 记录交易
+            if not test:
+                log_trade(signal)
+            
+            # 间隔1分钟
+            time.sleep(60)
+    
+    # 计算并推送激进仓策略
+    if not aggressive_etfs.empty:
+        logger.info(f"开始推送激进仓策略（{len(aggressive_etfs)}只ETF）")
+        for _, etf in aggressive_etfs.iterrows():
+            signal = calculate_etf_strategy(etf['code'], etf['name'], 'aggressive')
+            # 格式化消息
+            message = _format_strategy_signal(signal, test=test)
+            
+            # 推送消息
+            if not test:
+                send_wecom_message(message)
+            
+            # 记录交易
+            if not test:
+                log_trade(signal)
+            
+            # 间隔1分钟
+            time.sleep(60)
+    
+    logger.info("策略推送完成")
+    return True
+
+def log_trade(signal):
+    """
+    记录交易流水
+    参数:
+        signal: 策略信号
+    """
+    # 确保交易日志目录存在
+    os.makedirs(Config.TRADE_LOG_DIR, exist_ok=True)
+    
+    # 创建日志文件名
+    filename = f"trade_log_{get_beijing_time().strftime('%Y%m%d')}.csv"
+    filepath = os.path.join(Config.TRADE_LOG_DIR, filename)
+    
+    # 创建交易记录
+    trade_record = {
+        '时间': get_beijing_time().strftime('%Y-%m-%d %H:%M'),
+        'ETF代码': signal['etf_code'],
+        'ETF名称': signal['etf_name'],
+        '操作': signal['action'],
+        '仓位比例': signal['position'],
+        '总评分': signal['total_score'],
+        '策略依据': signal['rationale']
+    }
+    
+    # 保存到CSV
+    if os.path.exists(filepath):
+        # 追加到现有文件
+        df = pd.read_csv(filepath)
+        df = pd.concat([df, pd.DataFrame([trade_record])], ignore_index=True)
+        df.to_csv(filepath, index=False)
+    else:
+        # 创建新文件
+        pd.DataFrame([trade_record]).to_csv(filepath, index=False)
+    
+    logger.info(f"交易记录已保存: {signal['etf_name']} - {signal['action']}")
+
+def update_stock_pool():
+    """
+    更新ETF股票池（5只稳健仓 + 5只激进仓）
+    本函数应在每周五16:00北京时间运行
+    """
+    logger.info("开始股票池更新流程")
+    
+    # 获取当前北京时间
+    beijing_now = get_beijing_time()
+    
+    # 检查今天是否是周五
+    if beijing_now.weekday() != 4:  # 周五是4（周一是0）
+        logger.info(f"今天是{beijing_now.strftime('%A')}，不是周五。跳过股票池更新。")
+        return None
+    
+    # 检查时间是否在16:00之后
+    if beijing_now.time() < datetime.time(16, 0):
+        logger.info(f"当前时间是{beijing_now.strftime('%H:%M')}，早于16:00。跳过股票池更新。")
+        return None
+    
+    # 生成新的股票池
+    stock_pool = generate_stock_pool()
+    
+    if stock_pool is None:
+        logger.error("股票池生成失败，无法更新。")
+        return None
+    
+    logger.info(f"股票池更新成功。")
+    logger.info(f"选定{len(stock_pool[stock_pool['type'] == '稳健仓'])}只稳健ETF和{len(stock_pool[stock_pool['type'] == '激进仓'])}只激进ETF")
+    
+    return stock_pool
+
+def get_current_stock_pool():
+    """
+    获取当前有效的股票池
+    返回:
+        DataFrame: 当前股票池
+    """
+    return get_current_stock_pool()
+
+def _is_test_request():
+    """判断是否是测试请求"""
+    return request.args.get('test', 'false').lower() == 'true'
+
+def _format_message(message, test=False):
+    """格式化消息，测试请求添加标识"""
+    if test:
+        return f"【测试消息】\n{message}"
+    return message
+
+def _format_stock_pool_message(stock_pool, test=False):
+    """格式化股票池消息"""
+    if stock_pool is None or stock_pool.empty:
+        return "当前股票池为空"
+    
+    # 获取当前时间
+    beijing_time = get_beijing_time().strftime('%Y-%m-%d %H:%M')
+    
+    # 构建消息
+    message = f"{'T04: 测试推送' if test else '推送'}当前股票池\nCF系统时间：{beijing_time}\n【ETF股票池】\n"
+    message += f"更新时间：{stock_pool['update_time'].iloc[0]}\n\n"
+    
+    # 稳健仓
+    message += "【稳健仓】\n"
+    stable_etfs = stock_pool[stock_pool['type'] == '稳健仓']
+    for _, etf in stable_etfs.iterrows():
+        message += f"{etf['code']} | {etf['name']} | 总分：{etf['total_score']}\n"
+        message += f"筛选依据：流动性{etf['liquidity_score']}，风险控制{etf['risk_score']}，收益能力{etf['return_score']}\n\n"
+    
+    # 激进仓
+    message += "【激进仓】\n"
+    aggressive_etfs = stock_pool[stock_pool['type'] == '激进仓']
+    for _, etf in aggressive_etfs.iterrows():
+        message += f"{etf['code']} | {etf['name']} | 总分：{etf['total_score']}\n"
+        message += f"筛选依据：收益能力{etf['return_score']}，风险收益比{etf['return_score']-etf['risk_score']:.1f}，情绪指标{etf['sentiment_score']}\n\n"
+    
+    return message
+
+def _format_strategy_signal(signal, test=False):
+    """格式化策略信号消息"""
+    if not signal:
+        return "无有效策略信号"
+    
+    # 构建消息
+    message = f"{'T05: 测试执行' if test else '执行'}策略并推送结果\n"
+    message += f"CF系统时间：{get_beijing_time().strftime('%Y-%m-%d %H:%M')}\n"
+    message += f"ETF代码：{signal['etf_code']}\n"
+    message += f"名称：{signal['etf_name']}\n"
+    message += f"操作建议：{signal['action']}\n"
+    message += f"仓位比例：{signal['position']}%\n"
+    message += f"策略依据：{signal['rationale']}"
+    
+    return message
 
 def get_cache_path(etf_code, data_type='daily'):
     """
@@ -378,7 +591,7 @@ def crawl_sina_finance(etf_code):
         
         # 解析JSON响应
         data = response.json()
-        if not data:
+        if not 
             return None
         
         # 转换为DataFrame
@@ -513,7 +726,7 @@ def get_all_etf_list():
         response.raise_for_status()
         data = response.json()
         
-        if data:
+        if 
             etf_list = pd.DataFrame(data)
             etf_list = etf_list[['symbol', 'name']]
             etf_list.columns = ['code', 'name']
@@ -713,8 +926,8 @@ def get_new_stock_subscriptions():
         data = response.json()
         
         new_stocks = []
-        if data:
-            for item in data:
+        if 
+            for item in 
                 code = item.get('symbol', '')
                 name = item.get('name', '')
                 issue_price = item.get('price', '')
@@ -743,197 +956,40 @@ def get_new_stock_subscriptions():
     logger.error("所有数据源均无法获取新股申购信息")
     return pd.DataFrame(columns=['code', 'name', 'issue_price', 'max_purchase', 'issue_date'])
 
-def format_message(message_type, content, test=False):
+def format_new_stock_subscriptions_message(new_stocks):
     """
-    通用消息格式化函数
+    格式化新股申购信息消息
     参数:
-        message_type: 消息类型 ('stock_pool', 'strategy', 'new_stock')
-        content: 消息内容 (DataFrame或dict)
-        test: 是否为测试模式
+        new_stocks: 新股DataFrame
     返回:
         str: 格式化后的消息
     """
-    # 获取当前时间
-    beijing_time = get_beijing_time().strftime('%Y-%m-%d %H:%M')
+    if new_stocks.empty:
+        return "今日无新股可申购"
     
-    # 测试消息前缀
-    test_prefix = "【测试消息】\n" if test else ""
-    test_suffix = " (测试)" if test else ""
+    # 仅包含新股基本信息，不涉及任何ETF评分
+    message = "【今日新股申购信息】\n"
+    for _, row in new_stocks.iterrows():
+        # 确保只使用新股基本信息
+        code = row.get('code', '')
+        name = row.get('name', '')
+        issue_price = row.get('issue_price', '')
+        max_purchase = row.get('max_purchase', '')
+        issue_date = row.get('issue_date', '')
+        
+        # 格式化消息 - 仅包含新股基本信息
+        message += f"\n股票代码：{code}\n"
+        message += f"股票名称：{name}\n"
+        message += f"发行价格：{issue_price}元\n"
+        message += f"申购上限：{max_purchase}股\n"
+        message += f"申购日期：{issue_date}\n"
+        message += "─" * 20
     
-    # 根据消息类型生成不同格式
-    if message_type == 'stock_pool':
-        stock_pool = content
-        
-        # 构建消息
-        message = f"{test_prefix}{'T04: 测试推送' if test else '推送'}当前股票池\nCF系统时间：{beijing_time}\n【ETF股票池】\n"
-        message += f"更新时间：{stock_pool['update_time'].iloc[0]}\n\n"
-        
-        # 稳健仓
-        message += "【稳健仓】\n"
-        stable_etfs = stock_pool[stock_pool['type'] == '稳健仓']
-        for _, etf in stable_etfs.iterrows():
-            message += f"{etf['code']} | {etf['name']} | 总分：{etf['total_score']}\n"
-            message += f"筛选依据：流动性{etf['liquidity_score']}，风险控制{etf['risk_score']}，收益能力{etf['return_score']}\n\n"
-        
-        # 激进仓
-        message += "【激进仓】\n"
-        aggressive_etfs = stock_pool[stock_pool['type'] == '激进仓']
-        for _, etf in aggressive_etfs.iterrows():
-            message += f"{etf['code']} | {etf['name']} | 总分：{etf['total_score']}\n"
-            message += f"筛选依据：收益能力{etf['return_score']}，风险收益比{etf['return_score']-etf['risk_score']:.1f}，情绪指标{etf['sentiment_score']}\n\n"
-        
-        return message
-    
-    elif message_type == 'strategy':
-        signal = content
-        
-        # 构建消息
-        message = f"{test_prefix}{'T05: 测试执行' if test else '执行'}策略并推送结果\n"
-        message += f"CF系统时间：{beijing_time}\n"
-        message += f"ETF代码：{signal['etf_code']}\n"
-        message += f"名称：{signal['etf_name']}\n"
-        message += f"操作建议：{signal['action']}\n"
-        message += f"仓位比例：{signal['position']}%\n"
-        message += f"策略依据：{signal['rationale']}"
-        
-        return message
-    
-    elif message_type == 'new_stock':
-        new_stocks = content
-        
-        # 仅包含新股基本信息，不涉及任何ETF评分
-        message = f"{test_prefix}{'T07: 测试推送' if test else '推送'}新股信息（只推送当天可申购的新股）\nCF系统时间：{beijing_time}\n【今日新股申购信息】\n"
-        
-        for _, row in new_stocks.iterrows():
-            # 确保只使用新股基本信息
-            code = row.get('code', '')
-            name = row.get('name', '')
-            issue_price = row.get('issue_price', '')
-            max_purchase = row.get('max_purchase', '')
-            issue_date = row.get('issue_date', '')
-            
-            # 格式化消息 - 仅包含新股基本信息
-            message += f"\n股票代码：{code}\n"
-            message += f"股票名称：{name}\n"
-            message += f"发行价格：{issue_price}元\n"
-            message += f"申购上限：{max_purchase}股\n"
-            message += f"申购日期：{issue_date}\n"
-            message += "─" * 20
-        
-        return message
-    
-    elif message_type == 'health_check':
-        # 健康检查消息
-        return f"{test_prefix}CF系统时间：{beijing_time}\n系统运行正常！"
-    
-    elif message_type == 'test_message':
-        # 测试消息
-        return f"{test_prefix}CF系统时间：{beijing_time}\n这是来自鱼盆ETF系统的测试消息。"
-    
-    return ""
+    return message
 
-def push_strategy_results(test=False):
-    """
-    计算策略信号并推送到企业微信
-    参数:
-        test: 是否为测试模式
-    返回:
-        bool: 是否成功
-    """
-    logger.info(f"{'测试' if test else ''}策略计算与推送开始")
-    
-    # 获取当前股票池
-    stock_pool = get_current_stock_pool()
-    if stock_pool is None or stock_pool.empty:
-        logger.error("股票池为空，无法计算策略")
-        return False
-    
-    # 按ETF类型分组
-    stable_etfs = stock_pool[stock_pool['type'] == '稳健仓']
-    aggressive_etfs = stock_pool[stock_pool['type'] == '激进仓']
-    
-    # 计算并推送稳健仓策略
-    if not stable_etfs.empty:
-        logger.info(f"开始推送稳健仓策略（{len(stable_etfs)}只ETF）")
-        for _, etf in stable_etfs.iterrows():
-            signal = calculate_etf_strategy(etf['code'], etf['name'], 'stable')
-            # 格式化消息
-            message = format_message('strategy', signal, test=test)
-            
-            # 推送消息
-            if not test:
-                send_wecom_message(message)
-            
-            # 记录交易
-            if not test:
-                log_trade(signal)
-            
-            # 间隔1分钟
-            time.sleep(60)
-    
-    # 计算并推送激进仓策略
-    if not aggressive_etfs.empty:
-        logger.info(f"开始推送激进仓策略（{len(aggressive_etfs)}只ETF）")
-        for _, etf in aggressive_etfs.iterrows():
-            signal = calculate_etf_strategy(etf['code'], etf['name'], 'aggressive')
-            # 格式化消息
-            message = format_message('strategy', signal, test=test)
-            
-            # 推送消息
-            if not test:
-                send_wecom_message(message)
-            
-            # 记录交易
-            if not test:
-                log_trade(signal)
-            
-            # 间隔1分钟
-            time.sleep(60)
-    
-    logger.info("策略推送完成")
-    return True
-
-def log_trade(signal):
-    """
-    记录交易流水
-    参数:
-        signal: 策略信号
-    """
-    # 确保交易日志目录存在
-    os.makedirs(Config.TRADE_LOG_DIR, exist_ok=True)
-    
-    # 创建日志文件名
-    filename = f"trade_log_{get_beijing_time().strftime('%Y%m%d')}.csv"
-    filepath = os.path.join(Config.TRADE_LOG_DIR, filename)
-    
-    # 创建交易记录
-    trade_record = {
-        '时间': get_beijing_time().strftime('%Y-%m-%d %H:%M'),
-        'ETF代码': signal['etf_code'],
-        'ETF名称': signal['etf_name'],
-        '操作': signal['action'],
-        '仓位比例': signal['position'],
-        '总评分': signal['total_score'],
-        '策略依据': signal['rationale']
-    }
-    
-    # 保存到CSV
-    if os.path.exists(filepath):
-        # 追加到现有文件
-        df = pd.read_csv(filepath)
-        df = pd.concat([df, pd.DataFrame([trade_record])], ignore_index=True)
-        df.to_csv(filepath, index=False)
-    else:
-        # 创建新文件
-        pd.DataFrame([trade_record]).to_csv(filepath, index=False)
-    
-    logger.info(f"交易记录已保存: {signal['etf_name']} - {signal['action']}")
-
-def push_new_stock_info(test=False):
+def push_new_stock_info():
     """
     推送当天可申购的新股信息到企业微信
-    参数:
-        test: 是否为测试模式
     返回:
         bool: 是否成功推送
     """
@@ -945,17 +1001,51 @@ def push_new_stock_info(test=False):
         return True  # 无新股不算失败
     
     # 格式化消息
-    message = format_message('new_stock', new_stocks, test=test)
+    message = "【新股申购信息】\n" + format_new_stock_subscriptions_message(new_stocks)
     
     # 发送消息
-    if not test:
-        send_wecom_message(message)
+    success = send_wecom_message(message)
     
     # 标记已推送
-    if not test:
+    if success:
         mark_new_stock_info_pushed()
     
-    return True
+    return success
+
+def run_new_stock_info_task():
+    """
+    执行新股信息推送任务的核心逻辑（独立于API）
+    返回:
+        dict: 任务执行结果
+    """
+    logger = get_logger(__name__)
+    
+    # 检查是否为交易日
+    if not is_trading_day():
+        logger.info("今天不是交易日，跳过新股信息推送")
+        return {"status": "skipped", "message": "Not trading day"}
+    
+    # 检查是否已经推送过
+    if is_new_stock_info_pushed():
+        logger.info("新股信息已推送，跳过")
+        return {"status": "skipped", "message": "Already pushed"}
+    
+    # 检查是否在重试时间前
+    retry_time = get_new_stock_retry_time()
+    if retry_time and retry_time > datetime.datetime.now():
+        logger.info(f"仍在重试等待期，下次尝试时间: {retry_time}")
+        return {"status": "skipped", "message": f"Retry after {retry_time}"}
+    
+    # 尝试推送
+    success = push_new_stock_info()
+    
+    # 如果失败，设置30分钟后重试
+    if not success:
+        logger.info("新股信息推送失败，30分钟后重试")
+        set_new_stock_retry()
+        return {"status": "retry", "message": "Will retry in 30 minutes"}
+    
+    return {"status": "success", "message": "New stock info pushed"}
 
 def is_new_stock_info_pushed():
     """检查是否已经推送过新股信息"""
@@ -1095,8 +1185,8 @@ def get_test_new_stock_subscriptions():
                     data = response.json()
                     
                     new_stocks = []
-                    if data:
-                        for item in data:
+                    if 
+                        for item in 
                             code = item.get('symbol', '')
                             name = item.get('name', '')
                             issue_price = item.get('price', '')
@@ -1196,8 +1286,6 @@ def cleanup_old_data():
 @app.route('/health')
 def health_check():
     """健康检查"""
-    message = format_message('health_check', None)
-    send_wecom_message(message)
     return jsonify({
         "status": "healthy",
         "timestamp": get_beijing_time().isoformat(),
@@ -1275,9 +1363,9 @@ def cron_update_stock_pool():
         return jsonify({"status": "skipped", "message": "Before 16:00"})
     
     # 调用核心股票池更新函数
-    stock_pool = generate_stock_pool()
+    result = update_stock_pool()
     
-    if stock_pool is None:
+    if result is None:
         return jsonify({"status": "skipped", "message": "No valid ETFs found"})
     
     return jsonify({"status": "success", "message": "Stock pool updated"})
@@ -1356,7 +1444,12 @@ def cron_new_stock_info():
 def test_message():
     """T01: 测试消息推送"""
     test = _is_test_request()
-    message = format_message('test_message', None, test=test)
+    beijing_time = get_beijing_time().strftime('%Y-%m-%d %H:%M')
+    message = _format_message(
+        f"CF系统时间：{beijing_time}\n这是来自鱼盆ETF系统的测试消息。\nT01: 测试消息推送。",
+        test=test
+    )
+    
     send_wecom_message(message)
     return jsonify({"status": "success", "message": "Test message sent"})
 
@@ -1372,7 +1465,7 @@ def test_strategy():
     results = []
     for _, etf in stock_pool.iterrows():
         etf_type = 'stable' if etf['type'] == '稳健仓' else 'aggressive'
-        signal = calculate_etf_strategy(etf['code'], etf['name'], etf_type)
+        signal = calculate_strategy(etf['code'], etf['name'], etf_type)
         results.append({
             'code': etf['code'],
             'name': etf['name'],
@@ -1422,10 +1515,10 @@ def test_stock_pool():
         return jsonify({"status": "error", "message": "No stock pool available"})
     
     # 格式化消息
-    message = format_message('stock_pool', stock_pool, test=test)
+    message = _format_stock_pool_message(stock_pool, test=test)
     
     # 发送消息
-    send_wecom_message(message)
+    send_wecom_message(_format_message(message, test=test))
     return jsonify({"status": "success", "message": "Stock pool pushed"})
 
 @app.route('/test/execute', methods=['GET'])
@@ -1461,10 +1554,10 @@ def test_reset():
         }
         
         # 格式化消息
-        message = format_message('strategy', signal, test=test)
+        message = _format_strategy_signal(signal, test=test)
         
         # 推送消息
-        send_wecom_message(message)
+        send_wecom_message(_format_message(message, test=test))
         
         # 记录交易
         if not test:
@@ -1488,13 +1581,23 @@ def test_new_stock():
         logger.error("测试错误：未获取到任何新股信息")
         return jsonify({"status": "error", "message": "No test new stocks available"})
     
-    # 格式化消息
-    message = format_message('new_stock', new_stocks, test=test)
+    # 格式化消息 - 仅包含新股基本信息
+    message = _format_message(
+        "T07: 测试推送新股信息（只推送当天可申购的新股）\n" + 
+        format_new_stock_subscriptions_message(new_stocks),
+        test=test
+    )
     
     # 发送消息
-    send_wecom_message(message)
+    success = send_wecom_message(message)
     
-    return jsonify({"status": "success", "message": "Test new stocks sent"})
+    # 检查推送结果
+    if success:
+        logger.info("测试消息推送成功")
+        return jsonify({"status": "success", "message": "Test new stocks sent"})
+    else:
+        logger.error("测试消息推送失败")
+        return jsonify({"status": "error", "message": "Failed to send test new stocks"})
 
 @app.route('/test/new-stock-info', methods=['GET'])
 def test_new_stock_info():
@@ -1506,16 +1609,16 @@ def test_new_stock_info():
     
     # 推送新股信息
     if not new_stocks.empty:
-        message = format_message('new_stock', new_stocks, test=test)
+        message = _format_message(
+            "T08: 测试推送所有新股申购信息\n" + 
+            format_new_stock_subscriptions_message(new_stocks),
+            test=test
+        )
         send_wecom_message(message)
     
     return jsonify({"status": "success", "message": "Test new stock info sent"})
 
 # ========== 辅助函数 ==========
-
-def _is_test_request():
-    """判断是否是测试请求"""
-    return request.args.get('test', 'false').lower() == 'true'
 
 def push_strategy():
     """定时推送策略信号（每日 14:50）"""
