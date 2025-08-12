@@ -101,7 +101,7 @@ app = Flask(__name__)
 logger = get_logger(__name__)
 
 def get_beijing_time():
-    ""获取当前北京时间(UTC+8)"""""""
+    # 获取当前北京时间(UTC+8)
     beijing_tz = pytz.timezone('Asia/Shanghai')
     return datetime.datetime.now(beijing_tz)
 
