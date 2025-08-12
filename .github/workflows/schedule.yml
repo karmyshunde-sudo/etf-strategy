@@ -48,6 +48,12 @@ on:
 jobs:
   run-strategy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read  # 移除写权限，因为我们不再推送更改
+      # 如果需要访问 secrets，保留以下权限
+      id-token: write
+      pull-requests: read
+      
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -78,12 +84,8 @@ jobs:
           # 执行主程序
           python main.py
           
-          # 提交数据变更到仓库
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add data/
-          git commit -m "自动更新策略数据 $(date)" || echo "No changes to commit"
-          git push || echo "Failed to push changes"
+          # 已移除Git推送操作，避免403错误
+          # 系统只需发送企业微信消息，无需修改仓库内容
 
       - name: Verify execution
         run: |
