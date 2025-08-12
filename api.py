@@ -99,7 +99,7 @@ def cron_cleanup():
     return jsonify({"status": "success", "message": "Old data cleaned"})
 
 def push_strategy():
-    """定时推送策略信号（每日 14:50）"""
+    """定时推送策略信号（每日 13:50）"""
     # 检查是否为交易日
     if not is_trading_day():
         logger.info("今天不是交易日，跳过策略推送")
