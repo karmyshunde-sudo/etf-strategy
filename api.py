@@ -7,7 +7,7 @@
 from flask import request, jsonify
 from config import Config
 from scoring import generate_stock_pool, get_current_stock_pool, get_top_n_etfs
-from calculation import push_strategy_results, calculate_etf_strategy
+from calculation import push_strategy_results
 from wecom import send_wecom_message
 from logger import get_logger
 from time_utils import get_beijing_time, convert_to_beijing_time, is_trading_day, is_trading_time
@@ -27,7 +27,7 @@ def register_api(app):
     app.add_url_rule('/cron/push_strategy', 'push_strategy', cron_push_strategy, methods=['POST'])
     app.add_url_rule('/cron/arbitrage_scan', 'arbitrage_scan', cron_arbitrage_scan, methods=['POST'])
     app.add_url_rule('/cron/cleanup', 'cleanup', cron_cleanup, methods=['POST'])
-    app.add_url_rule('/cron/new-stock-info', 'new_stock_info', cron_new_stock_info, methods=['POST'])
+    app.add_url_rule('/cron/new-stock-info', 'new_stock_info', cron_new_stock_info_api, methods=['POST'])
     
     # 测试端点
     app.add_url_rule('/test/message', 'test_message', test_message, methods=['GET'])
@@ -80,24 +80,6 @@ def cron_push_strategy():
     success = push_strategy_results()
     return jsonify({"status": "success" if success else "skipped"})
 
-def push_strategy():
-    """
-    执行策略计算并推送结果（独立函数，供main.py调用）
-    返回:
-        dict: 执行结果
-    """
-    try:
-        success = push_strategy_results()
-        if success:
-            logger.info("策略执行成功")
-            return {"status": "success", "message": "Strategy pushed"}
-        else:
-            logger.warning("策略执行被跳过")
-            return {"status": "skipped", "message": "Strategy skipped"}
-    except Exception as e:
-        logger.error(f"策略执行失败: {str(e)}")
-        return {"status": "error", "message": str(e)}
-
 def cron_arbitrage_scan():
     """套利扫描任务"""
     if request.args.get('secret') != Config.CRON_SECRET:
@@ -116,48 +98,17 @@ def cron_cleanup():
     cleanup_old_data()
     return jsonify({"status": "success", "message": "Old data cleaned"})
 
-def cron_new_stock_info():
-    """定时推送新股信息（当天可申购的新股）"""
-    # 检查是否为交易日
-    if not is_trading_day():
-        logger.info("今天不是交易日，跳过新股信息推送")
-        return {"status": "skipped", "message": "Not trading day"}
-    
-    # 检查是否已经推送过
-    from crawler import is_new_stock_info_pushed
-    if is_new_stock_info_pushed():
-        logger.info("新股信息已推送，跳过")
-        return {"status": "skipped", "message": "Already pushed"}
-    
-    # 检查是否在重试时间前
-    from crawler import get_new_stock_retry_time
-    retry_time = get_new_stock_retry_time()
-    if retry_time and retry_time > get_beijing_time():
-        logger.info(f"仍在重试等待期，下次尝试时间: {retry_time}")
-        return {"status": "skipped", "message": f"Retry after {retry_time}"}
-    
-    # 尝试推送
-    from crawler import push_new_stock_info
-    success = push_new_stock_info()
-    
-    # 如果失败，设置30分钟后重试
-    if not success:
-        logger.info("新股信息推送失败，30分钟后重试")
-        from crawler import set_new_stock_retry
-        set_new_stock_retry()
-        return {"status": "retry", "message": "Will retry in 30 minutes"}
-    
-    return {"status": "success", "message": "New stock info pushed"}
-
 def cron_new_stock_info_api():
-    """作为API端点的定时推送新股信息函数（保留给可能的Web接口）"""
-    # 仅当作为Web API调用时才需要验证
-    if 'request' in globals():
-        from flask import request
-        if request.args.get('secret') != Config.CRON_SECRET:
-            return {"status": "error", "message": "Invalid secret"}, 401
+    """API端点：定时推送新股信息"""
+    if request.args.get('secret') != Config.CRON_SECRET:
+        return jsonify({"error": "Invalid secret"}), 401
     
-    return cron_new_stock_info()
+    # 调用核心任务函数
+    from crawler import run_new_stock_info_task
+    result = run_new_stock_info_task()
+    
+    # 转换为API响应
+    return jsonify(result)
 
 def test_message():
     """T01: 测试消息推送"""
@@ -301,7 +252,7 @@ def test_new_stock():
         logger.error("测试错误：未获取到任何新股信息")
         return {"status": "error", "message": "No test new stocks available"}
     
-    # 格式化消息 - 关键修复：添加测试标识前缀
+    # 格式化消息 - 仅包含新股基本信息
     message = "【测试消息】\nT07: 测试推送新股信息（只推送当天可申购的新股）\n" + format_new_stock_subscriptions_message(new_stocks)
     
     # 发送消息
@@ -347,11 +298,11 @@ def calculate_strategy(code, name, etf_type):
         dict: 策略信号
     """
     try:
-        # 严格调用实际策略计算函数，无任何示例逻辑
+        # 严格调用实际策略计算函数
+        from calculation import calculate_etf_strategy
         return calculate_etf_strategy(code, name, etf_type)
     except Exception as e:
         logger.error(f"计算ETF策略失败 {code}: {str(e)}")
-        # 返回安全的默认值，但不包含任何示例逻辑
         return {
             'action': 'hold',
             'position': 0,
