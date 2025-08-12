@@ -1294,17 +1294,23 @@ def get_new_stock_subscriptions():
     1. 主数据源：AkShare
     2. 备用数据源1：Baostock
     3. 备用数据源2：新浪财经
+    
     返回:
         DataFrame: 当天可申购的新股信息
     """
     # 尝试AkShare（主数据源）
     try:
         logger.info("尝试从AkShare获取新股申购信息...")
+        # 使用正确的AkShare函数获取新股信息
         df = ak.stock_ipo_cninfo()
+        
         if not df.empty:
             today = datetime.datetime.now().strftime('%Y-%m-%d')
+            # 筛选当天可申购的新股
             df = df[df['网上申购日'] == today]
+            
             if not df.empty:
+                # 重命名列为标准格式
                 df = df.rename(columns={
                     '证券代码': 'code',
                     '证券简称': 'name',
@@ -1312,10 +1318,13 @@ def get_new_stock_subscriptions():
                     '申购上限': 'max_purchase',
                     '网上申购日': 'issue_date'
                 })
+                # 转换数据类型
                 df['issue_price'] = df['issue_price'].astype(float)
                 df['max_purchase'] = df['max_purchase'].astype(int)
+                
                 logger.info(f"从AkShare成功获取 {len(df)} 条新股信息")
                 return df[['code', 'name', 'issue_price', 'max_purchase', 'issue_date']]
+        
         logger.warning("AkShare返回空数据，尝试备用数据源...")
     except Exception as e:
         logger.error(f"AkShare获取新股申购信息失败: {str(e)}")
@@ -1323,28 +1332,37 @@ def get_new_stock_subscriptions():
     # 尝试Baostock（备用数据源1）
     try:
         logger.info("尝试从Baostock获取新股申购信息...")
+        # 登录Baostock
         login_result = bs.login()
         if login_result.error_code != '0':
             logger.error(f"Baostock登录失败: {login_result.error_msg}")
             return pd.DataFrame(columns=['code', 'name', 'issue_price', 'max_purchase', 'issue_date'])
+        
+        # 获取新股信息（通过查询所有股票，然后筛选）
         rs = bs.query_stock_basic()
         data_list = []
         while (rs.error_code == '0') & rs.next():
             data_list.append(rs.get_row_data())
         df = pd.DataFrame(data_list, columns=rs.fields)
-        thirty_days_ago = (datetime.datetime.now() - datetime.timedelta(days=30)).strftime('%Y-%m-%d')
+        
         today = datetime.datetime.now().strftime('%Y-%m-%d')
-        df = df[(df['ipoDate'] >= thirty_days_ago) & (df['ipoDate'] <= today)]
+        # 筛选当天可申购的新股
+        df = df[df['ipoDate'] == today]
+        
         if not df.empty:
+            # 重命名列为标准格式
             df = df.rename(columns={
                 'code': 'code',
                 'code_name': 'name',
                 'ipoDate': 'issue_date'
             })
+            # 添加默认值
             df['issue_price'] = 0.0
             df['max_purchase'] = 0
+            
             logger.info(f"从Baostock成功获取 {len(df)} 条新股信息")
             return df[['code', 'name', 'issue_price', 'max_purchase', 'issue_date']]
+        
         logger.warning("Baostock返回空数据，尝试下一个数据源...")
     except Exception as e:
         logger.error(f"Baostock获取新股申购信息失败: {str(e)}")
@@ -1361,6 +1379,7 @@ def get_new_stock_subscriptions():
         response = requests.get(sina_url, timeout=15)
         response.raise_for_status()
         data = response.json()
+        
         new_stocks = []
         if data:
             for item in data:
@@ -1369,6 +1388,8 @@ def get_new_stock_subscriptions():
                 issue_price = item.get('price', '')
                 max_purchase = item.get('limit', '')
                 issue_date = item.get('issue_date', '')
+                
+                # 只保留今天可申购或上市的
                 if issue_date == datetime.datetime.now().strftime('%Y-%m-%d'):
                     new_stocks.append({
                         'code': code,
@@ -1377,6 +1398,7 @@ def get_new_stock_subscriptions():
                         'max_purchase': max_purchase,
                         'issue_date': issue_date
                     })
+        
         if new_stocks:
             logger.info(f"从新浪财经成功获取 {len(new_stocks)} 条新股信息")
             return pd.DataFrame(new_stocks)
@@ -1385,280 +1407,9 @@ def get_new_stock_subscriptions():
     except Exception as e:
         logger.error(f"新浪财经获取新股申购信息失败: {str(e)}")
     
+    # 所有数据源均失败，返回空DataFrame
     logger.error("所有数据源均无法获取新股申购信息")
     return pd.DataFrame(columns=['code', 'name', 'issue_price', 'max_purchase', 'issue_date'])
-
-def format_new_stock_subscriptions_message(new_stocks):
-    """
-    格式化新股申购信息消息
-    参数:
-        new_stocks: 新股DataFrame
-    返回:
-        str: 格式化后的消息
-    """
-    if new_stocks.empty:
-        return "今日无新股可申购"
-    
-    message = "【今日新股申购信息】\n"
-    for _, row in new_stocks.iterrows():
-        code = row.get('code', '')
-        name = row.get('name', '')
-        issue_price = row.get('issue_price', '')
-        max_purchase = row.get('max_purchase', '')
-        issue_date = row.get('issue_date', '')
-        
-        message += f"股票代码：{code}\n"
-        message += f"股票名称：{name}\n"
-        message += f"发行价格：{issue_price}元\n"
-        message += f"申购上限：{max_purchase}股\n"
-        message += f"申购日期：{issue_date}\n"
-        message += "─" * 20 + "\n"
-    
-    return message
-
-def push_new_stock_info(test=False):
-    """
-    推送当天可申购的新股信息到企业微信
-    参数:
-        test: 是否为测试模式
-    返回:
-        bool: 是否成功推送
-    """
-    new_stocks = get_new_stock_subscriptions()
-    
-    # 检查是否获取到新股数据
-    if new_stocks.empty:
-        logger.info("今日无新股可申购，跳过推送")
-        return True  # 无新股不算失败
-    
-    # 格式化消息
-    message = format_new_stock_subscriptions_message(new_stocks)
-    
-    # 在测试模式下，添加测试前缀
-    if test:
-        message = f"【测试消息】\nT07: 测试推送新股信息（只推送当天可申购的新股）\nCF系统时间：{get_beijing_time().strftime('%Y-%m-%d %H:%M')}\n{message}"
-    
-    # 发送消息
-    if not test:
-        send_wecom_message("【新股申购信息】\n" + message)
-    else:
-        send_wecom_message(message)
-    
-    return True
-
-def run_new_stock_info_task():
-    """
-    执行新股信息推送任务的核心逻辑（独立于API）
-    返回:
-        dict: 任务执行结果
-    """
-    logger = get_logger(__name__)
-    
-    # 检查是否为交易日
-    if not is_trading_day():
-        logger.info("今天不是交易日，跳过新股信息推送")
-        return {"status": "skipped", "message": "Not trading day"}
-    
-    # 检查是否已经推送过
-    if is_new_stock_info_pushed():
-        logger.info("新股信息已推送，跳过")
-        return {"status": "skipped", "message": "Already pushed"}
-    
-    # 检查是否在重试时间前
-    retry_time = get_new_stock_retry_time()
-    if retry_time and retry_time > datetime.datetime.now():
-        logger.info(f"仍在重试等待期，下次尝试时间: {retry_time}")
-        return {"status": "skipped", "message": f"Retry after {retry_time}"}
-    
-    # 尝试推送
-    success = push_new_stock_info()
-    
-    # 如果失败，设置30分钟后重试
-    if not success:
-        logger.info("新股信息推送失败，30分钟后重试")
-        set_new_stock_retry()
-        return {"status": "retry", "message": "Will retry in 30 minutes"}
-    
-    return {"status": "success", "message": "New stock info pushed"}
-
-def is_new_stock_info_pushed():
-    """检查是否已经推送过新股信息"""
-    return os.path.exists(Config.NEW_STOCK_INFO_PUSHED_FLAG)
-
-def mark_new_stock_info_pushed():
-    """标记新股信息已推送"""
-    with open(Config.NEW_STOCK_INFO_PUSHED_FLAG, 'w') as f:
-        f.write(datetime.datetime.now().strftime('%Y-%m-%d %H:%M'))
-
-def clear_new_stock_pushed_flag():
-    """清除新股信息推送标记"""
-    if os.path.exists(Config.NEW_STOCK_INFO_PUSHED_FLAG):
-        os.remove(Config.NEW_STOCK_INFO_PUSHED_FLAG)
-
-def get_new_stock_retry_time():
-    """获取新股信息重试时间"""
-    if os.path.exists(Config.NEW_STOCK_RETRY_FLAG):
-        try:
-            with open(Config.NEW_STOCK_RETRY_FLAG, 'r') as f:
-                retry_time_str = f.read().strip()
-                return datetime.datetime.strptime(retry_time_str, '%Y-%m-%d %H:%M')
-        except:
-            return None
-    return None
-
-def set_new_stock_retry():
-    """设置新股信息重试"""
-    with open(Config.NEW_STOCK_RETRY_FLAG, 'w') as f:
-        f.write((datetime.datetime.now() + datetime.timedelta(minutes=30)).strftime('%Y-%m-%d %H:%M'))
-    
-    # 同时清除已推送标记，以便重试
-    clear_new_stock_pushed_flag()
-
-def clear_new_stock_retry_flag():
-    """清除新股信息重试标记"""
-    if os.path.exists(Config.NEW_STOCK_RETRY_FLAG):
-        os.remove(Config.NEW_STOCK_RETRY_FLAG)
-
-def get_test_new_stock_subscriptions():
-    """
-    获取测试用的新股申购信息（从真实数据源获取，失败时使用历史数据）
-    返回:
-        DataFrame: 测试数据（包含最近的新股信息）
-    """
-    # 尝试获取当天的新股信息
-    new_stocks = get_new_stock_subscriptions()
-    
-    # 如果当天没有新股，尝试获取最近有新股的日期
-    if new_stocks.empty:
-        logger.warning("当天无新股申购，尝试获取历史数据...")
-        
-        # 尝试过去30天（原为7天）
-        for i in range(1, 31):
-            date_str = (datetime.datetime.now() - datetime.timedelta(days=i)).strftime('%Y%m%d')
-            try:
-                # 尝试AkShare（主数据源）
-                logger.info(f"尝试从AkShare获取{date_str}的历史新股数据...")
-                # 使用正确的AkShare函数获取新股信息
-                df = ak.stock_ipo_cninfo()
-                
-                if not df.empty:
-                    # 筛选指定日期
-                    df = df[df['网上申购日'] == f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"]
-                    
-                    if not df.empty:
-                        # 重命名列为标准格式
-                        df = df.rename(columns={
-                            '证券代码': 'code',
-                            '证券简称': 'name',
-                            '发行价格': 'issue_price',
-                            '申购上限': 'max_purchase',
-                            '网上申购日': 'issue_date'
-                        })
-                        # 转换数据类型
-                        df['issue_price'] = df['issue_price'].astype(float)
-                        df['max_purchase'] = df['max_purchase'].astype(int)
-                        
-                        # 添加历史标记
-                        df['issue_date'] = df['issue_date'].apply(
-                            lambda x: f"{x} (历史数据，{date_str[:4]}-{date_str[4:6]}-{date_str[6:]})"
-                        )
-                        
-                        logger.info(f"从AkShare成功获取 {len(df)} 条历史新股信息")
-                        return df[['code', 'name', 'issue_price', 'max_purchase', 'issue_date']]
-                
-                # 尝试Baostock（备用数据源1）
-                try:
-                    logger.info(f"尝试从Baostock获取{date_str}的历史新股数据...")
-                    # Baostock没有直接获取新股申购的API，通过股票基本信息筛选
-                    login_result = bs.login()
-                    if login_result.error_code != '0':
-                        raise Exception("Baostock登录失败")
-                    
-                    rs = bs.query_stock_basic()
-                    data_list = []
-                    while (rs.error_code == '0') & rs.next():
-                        data_list.append(rs.get_row_data())
-                    df = pd.DataFrame(data_list, columns=rs.fields)
-                    
-                    # 筛选新股（指定日期附近上市的）
-                    df = df[df['ipoDate'] == date_str]
-                    if not df.empty:
-                        # 重命名列为标准格式
-                        df = df.rename(columns={
-                            'code': 'code',
-                            'code_name': 'name',
-                            'ipoDate': 'issue_date'
-                        })
-                        # 添加默认值
-                        df['issue_price'] = 0.0
-                        df['max_purchase'] = 0
-                        
-                        # 添加历史标记
-                        df['issue_date'] = df['issue_date'].apply(
-                            lambda x: f"{x} (历史数据，{date_str[:4]}-{date_str[4:6]}-{date_str[6:]})"
-                        )
-                        
-                        logger.info(f"从Baostock成功获取 {len(df)} 条历史新股信息")
-                        return df[['code', 'name', 'issue_price', 'max_purchase', 'issue_date']]
-                    
-                    bs.logout()
-                
-                except Exception as e:
-                    logger.error(f"Baostock获取历史新股数据失败: {str(e)}")
-                    try:
-                        bs.logout()
-                    except:
-                        pass
-                
-                # 尝试新浪财经（备用数据源2）
-                try:
-                    logger.info(f"尝试从新浪财经获取{date_str}的历史新股数据...")
-                    sina_url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=1&num=100&sort=symbol&asc=1&node=iponew&symbol=&_s_r_a=page"
-                    response = requests.get(sina_url, timeout=15)
-                    response.raise_for_status()
-                    data = response.json()
-                    
-                    new_stocks = []
-                    if data:
-                        for item in data:
-                            code = item.get('symbol', '')
-                            name = item.get('name', '')
-                            issue_price = item.get('price', '')
-                            max_purchase = item.get('limit', '')
-                            issue_date = item.get('issue_date', '')
-                            
-                            # 检查日期匹配
-                            if issue_date == f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}":
-                                new_stocks.append({
-                                    'code': code,
-                                    'name': name,
-                                    'issue_price': issue_price,
-                                    'max_purchase': max_purchase,
-                                    'issue_date': issue_date
-                                })
-                    
-                    if new_stocks:
-                        df = pd.DataFrame(new_stocks)
-                        # 添加历史标记
-                        df['issue_date'] = df['issue_date'].apply(
-                            lambda x: f"{x} (历史数据，{date_str[:4]}-{date_str[4:6]}-{date_str[6:]})"
-                        )
-                        
-                        logger.info(f"从新浪财经成功获取 {len(df)} 条历史新股信息")
-                        return df
-                except Exception as e:
-                    logger.error(f"新浪财经获取历史新股数据失败: {str(e)}")
-            
-            except Exception as e:
-                logger.error(f"获取{date_str}历史新股数据失败: {str(e)}")
-    
-    # 如果有当天的新股，添加测试标记
-    if not new_stocks.empty:
-        new_stocks['issue_date'] = new_stocks['issue_date'].apply(
-            lambda x: f"{x} (测试数据)"
-        )
-    
-    return new_stocks
 
 def get_new_stock_listings():
     """
@@ -1678,11 +1429,11 @@ def get_new_stock_listings():
         df = ak.stock_ipo_cninfo()
         
         if not df.empty:
-            # 获取过去7天（可调整）上市的股票
-            seven_days_ago = (datetime.datetime.now() - datetime.timedelta(days=7)).strftime('%Y-%m-%d')
+            # 获取过去30天上市的股票
+            thirty_days_ago = (datetime.datetime.now() - datetime.timedelta(days=30)).strftime('%Y-%m-%d')
             today = datetime.datetime.now().strftime('%Y-%m-%d')
             # 筛选最近上市的股票
-            df = df[(df['上市日期'] >= seven_days_ago) & (df['上市日期'] <= today)]
+            df = df[(df['上市日期'] >= thirty_days_ago) & (df['上市日期'] <= today)]
             
             if not df.empty:
                 # 重命名列为标准格式
@@ -1720,10 +1471,10 @@ def get_new_stock_listings():
             data_list.append(rs.get_row_data())
         df = pd.DataFrame(data_list, columns=rs.fields)
         
-        # 筛选新股（过去7天内上市的）
-        seven_days_ago = (datetime.datetime.now() - datetime.timedelta(days=7)).strftime('%Y-%m-%d')
+        # 筛选新股（过去30天内上市的）
+        thirty_days_ago = (datetime.datetime.now() - datetime.timedelta(days=30)).strftime('%Y-%m-%d')
         today = datetime.datetime.now().strftime('%Y-%m-%d')
-        df = df[(df['ipoDate'] >= seven_days_ago) & (df['ipoDate'] <= today)]
+        df = df[(df['ipoDate'] >= thirty_days_ago) & (df['ipoDate'] <= today)]
         
         if not df.empty:
             # 重命名列为标准格式
@@ -1765,17 +1516,18 @@ def get_new_stock_listings():
                 max_purchase = item.get('limit', '')
                 listing_date = item.get('listing_date', '')
                 
-                # 只保留最近7天内上市的
+                # 只保留最近30天内上市的
                 try:
-                    date_obj = datetime.datetime.strptime(listing_date, '%Y-%m-%d')
-                    if (datetime.datetime.now() - date_obj).days <= 7:
-                        new_listings.append({
-                            'code': code,
-                            'name': name,
-                            'issue_price': issue_price,
-                            'max_purchase': max_purchase,
-                            'listing_date': listing_date
-                        })
+                    if listing_date:
+                        date_obj = datetime.datetime.strptime(listing_date, '%Y-%m-%d')
+                        if (datetime.datetime.now() - date_obj).days <= 30:
+                            new_listings.append({
+                                'code': code,
+                                'name': name,
+                                'issue_price': issue_price,
+                                'max_purchase': max_purchase,
+                                'listing_date': listing_date
+                            })
                 except:
                     continue
         
@@ -1790,6 +1542,37 @@ def get_new_stock_listings():
     # 所有数据源均失败，返回空DataFrame
     logger.error("所有数据源均无法获取新上市交易股票信息")
     return pd.DataFrame(columns=['code', 'name', 'issue_price', 'max_purchase', 'listing_date'])
+
+def format_new_stock_subscriptions_message(new_stocks):
+    """
+    格式化新股申购信息消息
+    参数:
+        new_stocks: 新股DataFrame
+    返回:
+        str: 格式化后的消息
+    """
+    if new_stocks.empty:
+        return "今日无新股可申购"
+    
+    # 仅包含新股基本信息，不涉及任何ETF评分
+    message = "【今日新股申购信息】\n"
+    for _, row in new_stocks.iterrows():
+        # 确保只使用新股基本信息
+        code = row.get('code', '')
+        name = row.get('name', '')
+        issue_price = row.get('issue_price', '')
+        max_purchase = row.get('max_purchase', '')
+        issue_date = row.get('issue_date', '')
+        
+        # 格式化消息 - 仅包含新股基本信息
+        message += f"\n股票代码：{code}\n"
+        message += f"股票名称：{name}\n"
+        message += f"发行价格：{issue_price}元\n"
+        message += f"申购上限：{max_purchase}股\n"
+        message += f"申购日期：{issue_date}\n"
+        message += "─" * 20
+    
+    return message
 
 def format_new_stock_listings_message(new_listings):
     """
@@ -1822,6 +1605,39 @@ def format_new_stock_listings_message(new_listings):
     
     return message
 
+def push_new_stock_subscriptions(test=False):
+    """
+    推送当天可申购的新股信息到企业微信
+    参数:
+        test: 是否为测试模式
+    返回:
+        bool: 是否成功推送
+    """
+    new_stocks = get_new_stock_subscriptions()
+    
+    # 检查是否获取到新股数据
+    if new_stocks.empty:
+        logger.info("今日无新股可申购，跳过推送")
+        return True  # 无新股不算失败
+    
+    # 格式化消息
+    message = format_new_stock_subscriptions_message(new_stocks)
+    
+    # 在测试模式下，添加测试前缀
+    if test:
+        message = f"【测试消息】\nT07: 测试推送新股信息（只推送当天可申购的新股）\nCF系统时间：{get_beijing_time().strftime('%Y-%m-%d %H:%M')}\n{message}"
+    else:
+        message = f"CF系统时间：{get_beijing_time().strftime('%Y-%m-%d %H:%M')}\n{message}"
+    
+    # 发送消息
+    success = send_wecom_message(message)
+    
+    # 标记已推送（仅在非测试模式下）
+    if success and not test:
+        mark_new_stock_info_pushed()
+    
+    return success
+
 def push_new_stock_listings(test=False):
     """
     推送最近上市交易的新股信息到企业微信
@@ -1843,16 +1659,161 @@ def push_new_stock_listings(test=False):
     # 在测试模式下，添加测试前缀
     if test:
         message = f"【测试消息】\nT08: 测试推送新上市交易股票信息\nCF系统时间：{get_beijing_time().strftime('%Y-%m-%d %H:%M')}\n{message}"
+    else:
+        message = f"CF系统时间：{get_beijing_time().strftime('%Y-%m-%d %H:%M')}\n{message}"
     
     # 发送消息
-    if not test:
-        send_wecom_message("【新上市交易股票信息】\n" + message)
-    else:
-        send_wecom_message(message)
+    success = send_wecom_message(message)
     
-    return True
+    return success
 
-
+def get_test_new_stock_subscriptions():
+    """
+    获取测试用的新股申购信息（从真实数据源获取，失败时使用历史数据）
+    返回:
+        DataFrame: 测试数据（包含最近的新股信息）
+    """
+    # 尝试获取当天的新股信息
+    new_stocks = get_new_stock_subscriptions()
+    
+    # 检查是否获取到新股数据
+    if not new_stocks.empty:
+        logger.info(f"获取到 {len(new_stocks)} 条测试新股申购数据")
+        # 添加测试标记
+        new_stocks['issue_date'] = new_stocks['issue_date'].apply(
+            lambda x: f"{x} (测试数据)"
+        )
+        return new_stocks
+    
+    logger.warning("当天无新股申购，尝试获取历史数据...")
+    
+    # 尝试过去30天（原为7天）
+    for i in range(1, 31):
+        date_str = (datetime.datetime.now() - datetime.timedelta(days=i)).strftime('%Y%m%d')
+        try:
+            # 尝试AkShare（主数据源）
+            logger.info(f"尝试从AkShare获取{date_str}的历史新股数据...")
+            # 使用正确的AkShare函数获取新股信息
+            df = ak.stock_ipo_cninfo()
+            
+            if not df.empty:
+                # 筛选指定日期
+                df = df[df['网上申购日'] == f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"]
+                
+                if not df.empty:
+                    # 重命名列为标准格式
+                    df = df.rename(columns={
+                        '证券代码': 'code',
+                        '证券简称': 'name',
+                        '发行价格': 'issue_price',
+                        '申购上限': 'max_purchase',
+                        '网上申购日': 'issue_date'
+                    })
+                    # 转换数据类型
+                    df['issue_price'] = df['issue_price'].astype(float)
+                    df['max_purchase'] = df['max_purchase'].astype(int)
+                    
+                    # 添加历史标记
+                    df['issue_date'] = df['issue_date'].apply(
+                        lambda x: f"{x} (历史数据，{date_str[:4]}-{date_str[4:6]}-{date_str[6:]})"
+                    )
+                    
+                    logger.info(f"从AkShare成功获取 {len(df)} 条历史新股信息")
+                    return df[['code', 'name', 'issue_price', 'max_purchase', 'issue_date']]
+            
+            # 尝试Baostock（备用数据源1）
+            try:
+                logger.info(f"尝试从Baostock获取{date_str}的历史新股数据...")
+                # Baostock没有直接获取新股申购的API，通过股票基本信息筛选
+                login_result = bs.login()
+                if login_result.error_code != '0':
+                    raise Exception("Baostock登录失败")
+                
+                rs = bs.query_stock_basic()
+                data_list = []
+                while (rs.error_code == '0') & rs.next():
+                    data_list.append(rs.get_row_data())
+                df = pd.DataFrame(data_list, columns=rs.fields)
+                
+                # 筛选新股（指定日期附近上市的）
+                df = df[df['ipoDate'] == date_str]
+                if not df.empty:
+                    # 重命名列为标准格式
+                    df = df.rename(columns={
+                        'code': 'code',
+                        'code_name': 'name',
+                        'ipoDate': 'issue_date'
+                    })
+                    # 添加默认值
+                    df['issue_price'] = 0.0
+                    df['max_purchase'] = 0
+                    
+                    # 添加历史标记
+                    df['issue_date'] = df['issue_date'].apply(
+                        lambda x: f"{x} (历史数据，{date_str[:4]}-{date_str[4:6]}-{date_str[6:]})"
+                    )
+                    
+                    logger.info(f"从Baostock成功获取 {len(df)} 条历史新股信息")
+                    return df[['code', 'name', 'issue_price', 'max_purchase', 'issue_date']]
+                
+                bs.logout()
+            
+            except Exception as e:
+                logger.error(f"Baostock获取历史新股数据失败: {str(e)}")
+                try:
+                    bs.logout()
+                except:
+                    pass
+            
+            # 尝试新浪财经（备用数据源2）
+            try:
+                logger.info(f"尝试从新浪财经获取{date_str}的历史新股数据...")
+                sina_url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=1&num=100&sort=symbol&asc=1&node=iponew&symbol=&_s_r_a=page"
+                response = requests.get(sina_url, timeout=15)
+                response.raise_for_status()
+                data = response.json()
+                
+                new_stocks = []
+                if data:
+                    for item in data:
+                        code = item.get('symbol', '')
+                        name = item.get('name', '')
+                        issue_price = item.get('price', '')
+                        max_purchase = item.get('limit', '')
+                        issue_date = item.get('issue_date', '')
+                        
+                        # 检查日期匹配
+                        if issue_date == f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}":
+                            new_stocks.append({
+                                'code': code,
+                                'name': name,
+                                'issue_price': issue_price,
+                                'max_purchase': max_purchase,
+                                'issue_date': issue_date
+                            })
+                
+                if new_stocks:
+                    df = pd.DataFrame(new_stocks)
+                    # 添加历史标记
+                    df['issue_date'] = df['issue_date'].apply(
+                        lambda x: f"{x} (历史数据，{date_str[:4]}-{date_str[4:6]}-{date_str[6:]})"
+                    )
+                    
+                    logger.info(f"从新浪财经成功获取 {len(df)} 条历史新股信息")
+                    return df
+            except Exception as e:
+                logger.error(f"新浪财经获取历史新股数据失败: {str(e)}")
+        
+        except Exception as e:
+            logger.error(f"获取{date_str}历史新股数据失败: {str(e)}")
+    
+    # 如果有当天的新股，添加测试标记
+    if not new_stocks.empty:
+        new_stocks['issue_date'] = new_stocks['issue_date'].apply(
+            lambda x: f"{x} (测试数据)"
+        )
+    
+    return new_stocks
 
 def cleanup_directory(directory, days_to_keep=None):
     """
@@ -2036,18 +1997,18 @@ def cron_cleanup():
 
 @app.route('/cron/new-stock-info', methods=['GET', 'POST'])
 def cron_new_stock_info():
-    """定时推送新股信息（当天可申购的新股）"""
-    logger.info("新股信息推送任务触发")
+    """定时推送新股信息（当天可申购的新股）和新上市交易股票信息"""
+    logger.info("新股信息与新上市交易股票信息推送任务触发")
     
     # 检查是否为交易日
     if not is_trading_day():
         logger.info("今天不是交易日，跳过新股信息推送")
         return jsonify({"status": "skipped", "message": "Not trading day"})
     
-    # 检查是否已经推送过
+    # 检查是否已经推送过新股申购信息
     if is_new_stock_info_pushed():
-        logger.info("新股信息已推送，跳过")
-        return jsonify({"status": "skipped", "message": "Already pushed"})
+        logger.info("新股申购信息已推送，跳过")
+        return jsonify({"status": "skipped", "message": "New stock subscriptions already pushed"})
     
     # 检查是否在重试时间前
     retry_time = get_new_stock_retry_time()
@@ -2055,16 +2016,28 @@ def cron_new_stock_info():
         logger.info(f"仍在重试等待期，下次尝试时间: {retry_time}")
         return jsonify({"status": "skipped", "message": f"Retry after {retry_time}"})
     
-    # 尝试推送
-    success = push_new_stock_info()
+    # 尝试推送新股申购信息
+    success_subscriptions = push_new_stock_subscriptions()
     
-    # 如果失败，设置30分钟后重试
-    if not success:
-        logger.info("新股信息推送失败，30分钟后重试")
+    # 如果新股申购信息推送成功，等待2分钟再推送新上市交易股票信息
+    if success_subscriptions:
+        logger.info("新股申购信息推送成功，等待2分钟后推送新上市交易股票信息...")
+        time.sleep(120)  # 等待2分钟
+        
+        # 尝试推送新上市交易股票信息
+        success_listings = push_new_stock_listings()
+        
+        # 标记已推送
+        if success_subscriptions and success_listings:
+            mark_new_stock_info_pushed()
+            return jsonify({"status": "success", "message": "New stock info and listings pushed"})
+        elif success_subscriptions:
+            logger.warning("新上市交易股票信息推送失败，但新股申购信息已成功推送")
+            return jsonify({"status": "partial_success", "message": "New stock subscriptions pushed, listings failed"})
+    else:
+        logger.error("新股申购信息推送失败")
         set_new_stock_retry()
-        return jsonify({"status": "retry", "message": "Will retry in 30 minutes"})
-    
-    return jsonify({"status": "success", "message": "New stock info pushed"})
+        return jsonify({"status": "error", "message": "Failed to push new stock subscriptions"})
 
 # ========== 测试端点 ==========
 
@@ -2212,18 +2185,18 @@ def test_reset():
 
 @app.route('/test/new-stock', methods=['GET'])
 def test_new_stock():
-    """T07: 测试推送新股信息（只推送当天可申购的新股）"""
+    """T07: 测试推送新股信息（只推送当天可申购的新股）和新上市交易股票信息"""
     test = _is_test_request()
     
-    # 获取测试用的新股信息
+    # 获取测试用的新股申购信息
     new_stocks = get_test_new_stock_subscriptions()
     
     # 检查是否获取到新股数据
     if new_stocks.empty:
-        logger.error("测试错误：未获取到任何新股信息")
-        return jsonify({"status": "error", "message": "No test new stocks available"})
+        logger.error("测试错误：未获取到任何新股申购信息")
+        return jsonify({"status": "error", "message": "No test new stock subscriptions available"})
     
-    # 格式化消息 - 仅包含新股基本信息
+    # 格式化消息 - 仅包含新股申购信息
     message = _format_message(
         "T07: 测试推送新股信息（只推送当天可申购的新股）\n" + 
         format_new_stock_subscriptions_message(new_stocks),
@@ -2233,6 +2206,23 @@ def test_new_stock():
     # 发送消息
     success = send_wecom_message(message)
     
+    # 如果新股申购信息推送成功，等待2分钟再推送新上市交易股票信息
+    if success:
+        logger.info("新股申购信息测试推送成功，等待2分钟后推送新上市交易股票信息...")
+        time.sleep(120)  # 等待2分钟
+        
+        # 获取测试用的新上市交易股票信息
+        new_listings = get_new_stock_listings()
+        
+        # 推送新上市交易股票信息
+        if not new_listings.empty:
+            message = _format_message(
+                "T08: 测试推送新上市交易股票信息\n" + 
+                format_new_stock_listings_message(new_listings),
+                test=test
+            )
+            send_wecom_message(message)
+    
     # 检查推送结果
     if success:
         logger.info("测试消息推送成功")
@@ -2240,40 +2230,6 @@ def test_new_stock():
     else:
         logger.error("测试消息推送失败")
         return jsonify({"status": "error", "message": "Failed to send test new stocks"})
-
-@app.route('/test/new-stock-info', methods=['GET'])
-def test_new_stock_info():
-    """T08: 测试推送所有新股申购信息"""
-    test = _is_test_request()
-    
-    # 获取测试数据
-    new_stocks = get_test_new_stock_subscriptions()
-    
-    # 推送新股信息
-    if not new_stocks.empty:
-        message = _format_message(
-            "T08: 测试推送所有新股申购信息\n" + 
-            format_new_stock_subscriptions_message(new_stocks),
-            test=test
-        )
-        send_wecom_message(message)
-    
-    return jsonify({"status": "success", "message": "Test new stock info sent"})
-
-@app.route('/cron/new-stock-listings', methods=['GET', 'POST'])
-def cron_new_stock_listings():
-    """定时推送新上市交易股票信息"""
-    logger.info("新上市交易股票信息推送任务触发")
-    
-    # 检查是否为交易日
-    if not is_trading_day():
-        logger.info("今天不是交易日，跳过新上市交易股票信息推送")
-        return jsonify({"status": "skipped", "message": "Not trading day"})
-    
-    # 尝试推送
-    success = push_new_stock_listings()
-    
-    return jsonify({"status": "success" if success else "error"})
 
 @app.route('/test/new-stock-listings', methods=['GET'])
 def test_new_stock_listings():
@@ -2295,6 +2251,44 @@ def test_new_stock_listings():
     return jsonify({"status": "success", "message": "Test new stock listings sent"})
 
 # ========== 辅助函数 ==========
+
+def is_new_stock_info_pushed():
+    """检查是否已经推送过新股信息"""
+    return os.path.exists(Config.NEW_STOCK_INFO_PUSHED_FLAG)
+
+def mark_new_stock_info_pushed():
+    """标记新股信息已推送"""
+    with open(Config.NEW_STOCK_INFO_PUSHED_FLAG, 'w') as f:
+        f.write(datetime.datetime.now().strftime('%Y-%m-%d %H:%M'))
+
+def clear_new_stock_pushed_flag():
+    """清除新股信息推送标记"""
+    if os.path.exists(Config.NEW_STOCK_INFO_PUSHED_FLAG):
+        os.remove(Config.NEW_STOCK_INFO_PUSHED_FLAG)
+
+def get_new_stock_retry_time():
+    """获取新股信息重试时间"""
+    if os.path.exists(Config.NEW_STOCK_RETRY_FLAG):
+        try:
+            with open(Config.NEW_STOCK_RETRY_FLAG, 'r') as f:
+                retry_time_str = f.read().strip()
+                return datetime.datetime.strptime(retry_time_str, '%Y-%m-%d %H:%M')
+        except:
+            return None
+    return None
+
+def set_new_stock_retry():
+    """设置新股信息重试"""
+    with open(Config.NEW_STOCK_RETRY_FLAG, 'w') as f:
+        f.write((datetime.datetime.now() + datetime.timedelta(minutes=30)).strftime('%Y-%m-%d %H:%M'))
+    
+    # 同时清除已推送标记，以便重试
+    clear_new_stock_pushed_flag()
+
+def clear_new_stock_retry_flag():
+    """清除新股信息重试标记"""
+    if os.path.exists(Config.NEW_STOCK_RETRY_FLAG):
+        os.remove(Config.NEW_STOCK_RETRY_FLAG)
 
 def push_strategy():
     """定时推送策略信号（每日 14:50）"""
@@ -2339,31 +2333,23 @@ def run_task(task):
     try:
         if task == 'test_message':
             # T01: 测试消息推送
-            logger.info("执行测试消息推送任务")
-            # 直接构造测试消息
+            # 直接构造测试消息并发送
             beijing_time = get_beijing_time().strftime('%Y-%m-%d %H:%M')
             message = f"【测试消息】\nT01: 测试消息推送\nCF系统时间：{beijing_time}\n这是来自鱼盆ETF系统的测试消息。"
-            
-            # 发送消息
             success = send_wecom_message(message)
-            
-            if success:
-                logger.info("测试消息推送成功")
-                return {"status": "success", "message": "Test message sent"}
-            else:
-                logger.error("测试消息推送失败")
-                return {"status": "error", "message": "Failed to send test message"}
+            return {"status": "success" if success else "error", "message": "Test message sent"}
         
         elif task == 'test_new_stock':
             # T07: 测试推送新股信息
             logger.info("执行测试新股信息推送任务")
-            # 获取测试用的新股信息
+            
+            # 获取测试用的新股申购信息
             new_stocks = get_test_new_stock_subscriptions()
             
             # 检查是否获取到新股数据
             if new_stocks.empty:
-                logger.error("测试错误：未获取到任何新股信息")
-                return {"status": "error", "message": "No test new stocks available"}
+                logger.error("测试错误：未获取到任何新股申购信息")
+                return {"status": "error", "message": "No test new stock subscriptions available"}
             
             # 格式化消息
             message = "【测试消息】\nT07: 测试推送新股信息（只推送当天可申购的新股）\n"
@@ -2371,6 +2357,20 @@ def run_task(task):
             
             # 发送消息
             success = send_wecom_message(message)
+            
+            # 如果新股申购信息推送成功，等待2分钟再推送新上市交易股票信息
+            if success:
+                logger.info("新股申购信息测试推送成功，等待2分钟后推送新上市交易股票信息...")
+                time.sleep(120)  # 等待2分钟
+                
+                # 获取测试用的新上市交易股票信息
+                new_listings = get_new_stock_listings()
+                
+                # 推送新上市交易股票信息
+                if not new_listings.empty:
+                    message = "【测试消息】\nT08: 测试推送新上市交易股票信息\n"
+                    message += format_new_stock_listings_message(new_listings)
+                    send_wecom_message(message)
             
             if success:
                 logger.info("测试新股信息推送成功")
@@ -2476,10 +2476,6 @@ def run_task(task):
         elif task == 'cleanup':
             # 每天 00:00 清理旧数据
             return cron_cleanup()
-        
-        elif task == 'run_new_stock_listings':
-            # 每日 10:00 新上市交易股票信息推送
-            return cron_new_stock_listings()
         
         else:
             logger.warning(f"未知任务: {task}")
