@@ -591,8 +591,8 @@ def crawl_sina_finance(etf_code):
         
         # 解析JSON响应
         data = response.json()
-          if not 
-              return None
+        if not 
+          return None
         
         # 转换为DataFrame
         df = pd.DataFrame(data)
