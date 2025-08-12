@@ -118,26 +118,23 @@ def cron_cleanup():
 
 def cron_new_stock_info():
     """定时推送新股信息（当天可申购的新股）"""
-    if request.args.get('secret') != Config.CRON_SECRET:
-        return jsonify({"error": "Invalid secret"}), 401
-    
     # 检查是否为交易日
     if not is_trading_day():
         logger.info("今天不是交易日，跳过新股信息推送")
-        return jsonify({"status": "skipped", "message": "Not trading day"})
+        return {"status": "skipped", "message": "Not trading day"}
     
     # 检查是否已经推送过
     from crawler import is_new_stock_info_pushed
     if is_new_stock_info_pushed():
         logger.info("新股信息已推送，跳过")
-        return jsonify({"status": "skipped", "message": "Already pushed"})
+        return {"status": "skipped", "message": "Already pushed"}
     
     # 检查是否在重试时间前
     from crawler import get_new_stock_retry_time
     retry_time = get_new_stock_retry_time()
     if retry_time and retry_time > get_beijing_time():
         logger.info(f"仍在重试等待期，下次尝试时间: {retry_time}")
-        return jsonify({"status": "skipped", "message": f"Retry after {retry_time}"})
+        return {"status": "skipped", "message": f"Retry after {retry_time}"}
     
     # 尝试推送
     from crawler import push_new_stock_info
@@ -148,9 +145,19 @@ def cron_new_stock_info():
         logger.info("新股信息推送失败，30分钟后重试")
         from crawler import set_new_stock_retry
         set_new_stock_retry()
-        return jsonify({"status": "retry", "message": "Will retry in 30 minutes"})
+        return {"status": "retry", "message": "Will retry in 30 minutes"}
     
-    return jsonify({"status": "success", "message": "New stock info pushed"})
+    return {"status": "success", "message": "New stock info pushed"}
+
+def cron_new_stock_info_api():
+    """作为API端点的定时推送新股信息函数（保留给可能的Web接口）"""
+    # 仅当作为Web API调用时才需要验证
+    if 'request' in globals():
+        from flask import request
+        if request.args.get('secret') != Config.CRON_SECRET:
+            return {"status": "error", "message": "Invalid secret"}, 401
+    
+    return cron_new_stock_info()
 
 def test_message():
     """T01: 测试消息推送"""
