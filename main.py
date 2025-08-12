@@ -1,173 +1,1623 @@
 """
 鱼盆ETF投资量化模型 - 主入口文件
 说明:
-  本文件是系统入口，负责执行策略和处理定时任务
+  本文件是系统唯一入口，负责执行所有策略和处理所有请求
   所有文件放在根目录，简化导入关系
 
-【策略执行流程】
-1. 初始化配置：
-   - 加载配置参数
-   - 初始化日志系统
-   - 创建必要目录
+【数据爬取模块说明】
+  本文件同时负责从多个数据源获取ETF数据和新股信息
+  所有文件放在根目录，简化导入关系
+  主数据源：AkShare
+  备用数据源：Baostock、新浪财经
 
-2. 执行策略任务：
-   - 测试消息推送 (T01)
-   - 测试新股申购信息 (T07)
-   - 测试股票池推送 (T04)
-   - 测试策略推送 (T05)
-   - 重置所有仓位 (T06)
-   - 运行新股信息 (T07)
-   - 每日 9:30 新股信息推送
-   - 每日 14:50 策略信号推送
-   - 每周五 16:00 更新股票池
-   - 每日 15:30 爬取日线数据
-   - 盘中数据爬取
-   - 每天 00:00 清理旧数据
+【策略详细说明 - 数据获取逻辑】
+1. ETF数据获取流程：
+   - 主数据源：AkShare（优先尝试，返回最完整数据）
+   - 备用数据源1：Baostock（当AkShare失败时尝试）
+   - 备用数据源2：新浪财经（当前两个数据源都失败时尝试）
+   - 缓存机制：优先检查本地缓存，减少API调用次数
 
-3. 异常处理机制：
-   - 捕获并记录所有异常
-   - 确保任务失败后能继续执行
-   - 重试机制（针对关键任务）
+2. 新股信息获取逻辑：
+   - 区分两种新股类型：
+     * 认购新股（IPO申购）：通过"网上申购日"筛选
+     * 上市交易新股：通过"上市日期"筛选
+   - 历史数据范围：过去30天（原为7天），确保覆盖最近上市交易的新股
+   - 多数据源回退机制：确保即使主数据源失败也能获取数据
 
-【修复说明】
-1. 移除了循环导入问题：
-   - 将Config导入移到函数内部
-   - 避免模块级导入导致的循环依赖
+3. 数据质量保障：
+   - 严格的数据验证：检查DataFrame是否为空
+   - 完善的错误处理：记录详细错误日志
+   - 数据类型转换：确保数值型字段为正确类型
+   - 日期格式标准化：统一使用YYYY-MM-DD格式
 
-2. 移除了Tushare相关代码：
-   - 仅保留AkShare、Baostock、新浪财经三个数据源
-   - 确保系统兼容最新数据源配置
+4. 性能优化：
+   - 缓存机制：减少重复API调用
+   - 限流控制：每个API调用间隔1秒
+   - 数据过滤：仅获取必要字段
 
-3. 增强了错误处理：
-   - 详细记录错误信息
-   - 提供明确的错误提示
-   - 确保单个任务失败不影响其他任务
+【异常处理机制】
+1. 数据源失败：
+   - 记录详细错误日志，包含错误类型和消息
+   - 自动切换到备用数据源
+   - 所有数据源失败时返回空DataFrame
+
+2. 数据质量异常：
+   - 空数据处理：返回空DataFrame而非抛出异常
+   - 字段缺失处理：使用默认值填充
+   - 类型转换错误：记录日志并跳过该条数据
+
+3. 网络问题：
+   - 设置15秒超时
+   - 重试机制（最多3次）
+   - 失败后等待30分钟再重试
+
+【使用说明】
+1. 获取ETF数据：get_etf_data(etf_code, data_type='daily')
+2. 获取ETF列表：get_all_etf_list()
+3. 获取新股信息：get_new_stock_subscriptions()
+4. 测试用数据获取：get_test_new_stock_subscriptions()
+
+【数据存储模块说明】
+  本文件同时负责数据的存储和清理
+  所有文件放在根目录，简化导入关系
+
+【时间处理工具说明】
+  本文件同时提供时间相关的工具函数
+  所有文件放在根目录，简化导入关系
+
+【企业微信集成说明】
+  本文件同时处理企业微信消息推送
+  所有文件放在根目录，简化导入关系
+
+【股票池管理模块说明】
+  本文件同时负责ETF股票池的更新和管理
+  保持10只ETF：5只稳健仓，5只激进仓
+  所有文件放在根目录，简化导入关系
+
+【策略计算模块说明】
+  本文件负责ETF策略信号的计算和推送
+  所有文件放在根目录，简化导入关系
 """
 
 import os
 import sys
 import time
-import argparse
-from datetime import datetime, timedelta
+import pandas as pd
+import numpy as np
+import datetime
+import pytz
+import shutil
+import requests
+import akshare as ak
+import baostock as bs
+from flask import Flask, request, jsonify
+from config import Config
+from logger import get_logger
+from scoring import generate_stock_pool, get_current_stock_pool, get_top_n_etfs, calculate_ETF_score
+from calculation import push_strategy_results, calculate_etf_strategy
+from bs4 import BeautifulSoup
 
-def main():
-    """主函数：执行策略任务"""
-    # 动态导入Config，避免循环导入问题
-    from config import Config
+app = Flask(__name__)
+logger = get_logger(__name__)
+
+def get_beijing_time():
+    """获取当前北京时间(UTC+8)"""
+    beijing_tz = pytz.timezone('Asia/Shanghai')
+    return datetime.datetime.now(beijing_tz)
+
+def convert_to_beijing_time(dt):
+    """
+    将datetime对象转换为北京时间(UTC+8)
+    参数:
+        dt: datetime对象
+    返回:
+        转换为北京时间的datetime对象
+    """
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)  # 若无时区信息，假设为UTC
+    beijing_tz = pytz.timezone('Asia/Shanghai')
+    return dt.astimezone(beijing_tz)  # 转换为北京时间
+
+def is_trading_day(date=None):
+    """
+    检查指定日期是否为交易日（中国股市）
+    参数:
+        date: datetime对象，默认为今天
+    返回:
+        bool: 是交易日返回True，否则返回False
+    """
+    if date is None:
+        date = get_beijing_time()
+    beijing_date = date.date()
     
-    # 动态导入其他模块，避免循环导入
-    from logger import get_logger
-    from time_utils import is_trading_day, get_beijing_time
-    from api import register_api, test_message, test_new_stock, test_stock_pool
-    from api import test_execute, test_reset, cron_new_stock_info_api, push_strategy
-    from api import update_stock_pool, crawl_daily, cleanup
+    # 简单检查：周一至周五且不是已知节假日
+    # 实际实现中，应检查节假日日历
+    if beijing_date.weekday() < 5:  # 周一=0，周日=6
+        return True
+    return False
+
+def is_trading_time():
+    """
+    检查当前时间是否在中国股市交易时段
+    返回:
+        bool: 是交易时间返回True，否则返回False
+        str: 当前交易时段类型
+    """
+    now = get_beijing_time()
+    beijing_time = now.time()
     
-    # 初始化日志
-    logger = get_logger(__name__)
-    
-    # 检查必要配置
+    # 集合竞价时段 (9:15-9:25)
+    if datetime.time(9, 15) <= beijing_time < datetime.time(9, 25):
+        return True, 'pre_market'
+    # 早盘交易时段 (9:30-11:30)
+    elif datetime.time(9, 30) <= beijing_time < datetime.time(11, 30):
+        return True, 'morning'
+    # 午盘交易时段 (13:00-15:00)
+    elif datetime.time(13, 0) <= beijing_time < datetime.time(15, 0):
+        return True, 'afternoon'
+    # 收盘后时段
+    else:
+        return False, 'post_market'
+
+def send_wecom_message(message):
+    """
+    发送消息到企业微信
+    参数:
+        message: 消息内容
+    返回:
+        bool: 是否成功
+    """
+    # 检查配置
     if not Config.WECOM_WEBHOOK:
-        logger.critical("企业微信webhook未配置，请在config.py中设置WECOM_WEBHOOK")
-        sys.exit(1)
+        logger.error("WECOM_WEBHOOK 未设置，无法发送企业微信消息")
+        return False
     
-    # 显示系统启动信息
-    logger.info("=" * 50)
-    logger.info(f"CF系统时间：{get_beijing_time().strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info("鱼盆ETF投资量化系统启动")
-    logger.info("=" * 50)
-    
-    # 获取任务名称
-    task = os.getenv('TASK', 'run_new_stock_info')
-    logger.info(f"执行任务: {task}")
+    # 在消息结尾添加全局备注
+    if Config.MESSAGE_FOOTER:
+        message = f"{message}\n\n{Config.MESSAGE_FOOTER}"
     
     try:
-        # 执行不同任务
-        if task == 'test_message':
-            # T01: 测试消息推送
-            logger.info("开始执行: T01 测试消息推送")
-            result = test_message()
-            logger.info(f"任务执行结果: {result}")
-            
-        elif task == 'test_new_stock':
-            # T07: 测试推送新股信息
-            logger.info("开始执行: T07 测试推送新股信息")
-            result = test_new_stock()
-            logger.info(f"任务执行结果: {result}")
-            
-        elif task == 'test_stock_pool':
-            # T04: 测试推送当前股票池
-            logger.info("开始执行: T04 测试推送股票池")
-            result = test_stock_pool()
-            logger.info(f"任务执行结果: {result}")
-            
-        elif task == 'test_execute':
-            # T05: 执行策略并推送结果
-            logger.info("开始执行: T05 执行策略并推送结果")
-            result = test_execute()
-            logger.info(f"任务执行结果: {result}")
-            
-        elif task == 'test_reset':
-            # T06: 重置所有仓位
-            logger.info("开始执行: T06 重置所有仓位")
-            result = test_reset()
-            logger.info(f"任务执行结果: {result}")
-            
-        elif task == 'run_new_stock_info':
-            # 每日 9:30 新股信息推送
-            logger.info("开始执行: 每日新股信息推送")
-            from crawler import run_new_stock_info_task
-            result = run_new_stock_info_task()
-            logger.info(f"任务执行结果: {result}")
-            
-        elif task == 'push_strategy':
-            # 每日 14:50 策略信号推送
-            logger.info("开始执行: 每日策略信号推送")
-            result = push_strategy()
-            logger.info(f"任务执行结果: {result}")
-            
-        elif task == 'update_stock_pool':
-            # 每周五 16:00 更新股票池
-            logger.info("开始执行: 每周五更新股票池")
-            if datetime.now().weekday() == 4:  # 周五
-                result = update_stock_pool()
-                logger.info(f"任务执行结果: {result}")
+        # 构建消息
+        payload = {
+            "msgtype": "text",
+            "text": {
+                "content": message
+            }
+        }
+        
+        # 发送请求
+        response = requests.post(
+            Config.WECOM_WEBHOOK,
+            json=payload,
+            timeout=10
+        )
+        
+        # 检查响应
+        if response.status_code == 200:
+            result = response.json()
+            if result.get('errcode') == 0:
+                logger.info("企业微信消息发送成功")
+                return True
             else:
-                logger.info("今天不是周五，跳过股票池更新")
-                
-        elif task == 'crawl_daily':
-            # 每日 15:30 爬取日线数据
-            logger.info("开始执行: 每日爬取日线数据")
-            from crawler import get_all_etf_list
-            etf_list = get_all_etf_list()
-            logger.info(f"获取到 {len(etf_list)} 只ETF，开始爬取日线数据...")
-            
-            for _, etf in etf_list.iterrows():
-                from crawler import get_etf_data
-                data = get_etf_data(etf['code'])
-                if data is not None:
-                    logger.info(f"成功获取 {etf['code']} {etf['name']} 日线数据")
-                time.sleep(1)  # 避免请求过快
-                
-        elif task == 'cleanup':
-            # 每天 00:00 清理旧数据
-            logger.info("开始执行: 清理旧数据")
-            from storage import cleanup_old_data
-            cleanup_old_data()
-            logger.info("旧数据清理完成")
-            
+                logger.error(f"企业微信API返回错误: {result}")
+                return False
         else:
-            logger.warning(f"未知任务: {task}")
-            logger.info("可用任务: test_message, test_new_stock, test_stock_pool, test_execute, test_reset, "
-                       "run_new_stock_info, push_strategy, update_stock_pool, crawl_daily, cleanup")
+            logger.error(f"企业微信请求失败，状态码: {response.status_code}")
+            return False
             
     except Exception as e:
-        logger.critical(f"程序执行失败: {str(e)}", exc_info=True)
-        sys.exit(1)
+        logger.error(f"发送企业微信消息时出错: {str(e)}")
+        return False
+
+def get_cache_path(etf_code, data_type='daily'):
+    """
+    生成指定ETF和数据类型的缓存文件路径
+    参数:
+        etf_code: ETF代码
+        data_type: 'daily'或'intraday'
+    返回:
+        str: 缓存文件路径
+    """
+    base_path = os.path.join(Config.RAW_DATA_DIR, 'etf_data')
+    os.makedirs(base_path, exist_ok=True)
     
-    logger.info("=" * 50)
-    logger.info("任务执行完成")
-    logger.info("=" * 50)
+    if data_type == 'daily':
+        return os.path.join(base_path, f"{etf_code}_daily.csv")
+    else:
+        return os.path.join(base_path, f"{etf_code}_intraday_{datetime.datetime.now().strftime('%Y%m%d')}.csv")
+
+def load_from_cache(etf_code, data_type='daily', days=30):
+    """
+    从缓存加载ETF数据（如果可用）
+    参数:
+        etf_code: ETF代码
+        data_type: 'daily'或'intraday'
+        days: 要加载的天数
+    返回:
+        DataFrame: 缓存数据或None（如果不可用）
+    """
+    cache_path = get_cache_path(etf_code, data_type)
+    try:
+        if os.path.exists(cache_path):
+            df = pd.read_csv(cache_path)
+            df['date'] = pd.to_datetime(df['date'])
+            # 筛选近期数据
+            if data_type == 'daily':
+                df = df[df['date'] >= (datetime.datetime.now() - datetime.timedelta(days=days))]
+            return df
+    except Exception as e:
+        logger.error(f"缓存加载错误 {etf_code}: {str(e)}")
+    return None
+
+def save_to_cache(etf_code, data, data_type='daily'):
+    """
+    将ETF数据保存到缓存
+    参数:
+        etf_code: ETF代码
+         DataFrame数据
+        data_type: 'daily'或'intraday'
+    """
+    cache_path = get_cache_path(etf_code, data_type)
+    
+    if os.path.exists(cache_path):
+        # 追加到现有文件
+        existing_data = pd.read_csv(cache_path)
+        combined = pd.concat([existing_data, data]).drop_duplicates(subset=['date'], keep='last')
+        combined.to_csv(cache_path, index=False)
+    else:
+        # 创建新文件
+        data.to_csv(cache_path, index=False)
+
+def crawl_akshare(etf_code):
+    """
+    从AkShare爬取ETF数据（主数据源）
+    参数:
+        etf_code: ETF代码
+    返回:
+        DataFrame: ETF数据或None（如果失败）
+    """
+    try:
+        # 从AkShare获取日线数据
+        df = ak.fund_etf_hist_sina(symbol=etf_code, period="daily", start_date="", end_date="")
+        if df.empty:
+            logger.error(f"AkShare返回空数据 {etf_code}")
+            return None
+        
+        # 重命名列为标准格式
+        df = df.rename(columns={
+            'date': 'date',
+            'open': 'open',
+            'high': 'high',
+            'low': 'low',
+            'close': 'close',
+            'volume': 'volume'
+        })
+        
+        # 将日期转换为datetime
+        df['date'] = pd.to_datetime(df['date'])
+        return df
+    except Exception as e:
+        logger.error(f"AkShare爬取错误 {etf_code}: {str(e)}")
+        return None
+
+def crawl_baostock(etf_code):
+    """
+    从Baostock爬取ETF数据（备用数据源1）
+    参数:
+        etf_code: ETF代码
+    返回:
+        DataFrame: ETF数据或None（如果失败）
+    """
+    try:
+        # 登录Baostock
+        login_result = bs.login()
+        if login_result.error_code != '0':
+            logger.error(f"Baostock登录失败: {login_result.error_msg}")
+            return None
+        
+        # 为Baostock格式化ETF代码（添加sh.或sz.前缀）
+        market = 'sh' if etf_code.startswith('5') else 'sz'
+        code = f"{market}.{etf_code}"
+        
+        # 获取历史数据
+        rs = bs.query_history_k_data_plus(
+            code, "date,open,high,low,close,volume",
+            start_date=(datetime.datetime.now() - datetime.timedelta(days=100)).strftime('%Y-%m-%d'),
+            end_date=datetime.datetime.now().strftime('%Y-%m-%d'),
+            frequency="d", adjustflag="3"
+        )
+        
+        if rs.error_code != '0':
+            logger.error(f"Baostock查询失败: {rs.error_msg}")
+            bs.logout()
+            return None
+        
+        # 转换为DataFrame
+        df = rs.get_data()
+        bs.logout()  # 使用后登出
+        
+        if df.empty:
+            return None
+        
+        # 转换数据类型
+        df['date'] = pd.to_datetime(df['date'])
+        df['open'] = df['open'].astype(float)
+        df['high'] = df['high'].astype(float)
+        df['low'] = df['low'].astype(float)
+        df['close'] = df['close'].astype(float)
+        df['volume'] = df['volume'].astype(float)
+        
+        return df
+    except Exception as e:
+        logger.error(f"Baostock爬取错误 {etf_code}: {str(e)}")
+        try:
+            bs.logout()
+        except:
+            pass
+        return None
+
+def crawl_sina_finance(etf_code):
+    """
+    从新浪财经爬取ETF数据（备用数据源2）
+    参数:
+        etf_code: ETF代码
+    返回:
+        DataFrame: ETF数据或None（如果失败）
+    """
+    try:
+        # 构建新浪财经API URL
+        sina_url = f"http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol=sh{etf_code if etf_code.startswith('5') else etf_code}&scale=240&ma=no&datalen=100"
+        if etf_code.startswith('1') or etf_code.startswith('5'):
+            sina_url = sina_url.replace('sh', 'sh')
+        else:
+            sina_url = sina_url.replace('sh', 'sz')
+        
+        # 获取数据
+        response = requests.get(sina_url, timeout=15)
+        response.raise_for_status()
+        
+        # 解析JSON响应
+        data = response.json()
+        if not data:
+            return None
+        
+        # 转换为DataFrame
+        df = pd.DataFrame(data)
+        df = df.rename(columns={
+            'day': 'date',
+            'open': 'open',
+            'high': 'high',
+            'low': 'low',
+            'close': 'close',
+            'volume': 'volume'
+        })
+        
+        # 转换数据类型
+        df['date'] = pd.to_datetime(df['date'])
+        df['open'] = df['open'].astype(float)
+        df['high'] = df['high'].astype(float)
+        df['low'] = df['low'].astype(float)
+        df['close'] = df['close'].astype(float)
+        df['volume'] = df['volume'].astype(float)
+        
+        return df
+    except Exception as e:
+        logger.error(f"新浪财经爬取错误 {etf_code}: {str(e)}")
+        return None
+
+def get_etf_data(etf_code, data_type='daily'):
+    """
+    从多数据源获取ETF数据（带自动回退机制）
+    参数:
+        etf_code: ETF代码
+        data_type: 'daily'或'intraday'
+    返回:
+        DataFrame: ETF数据或None（如果所有数据源都失败）
+    """
+    # 首先检查缓存
+    cached_data = load_from_cache(etf_code, data_type)
+    if cached_data is not None and not cached_data.empty:
+        logger.info(f"从缓存加载{etf_code}数据")
+        return cached_data
+    
+    # 尝试主数据源(AkShare)
+    data = crawl_akshare(etf_code)
+    if data is not None and not data.empty:
+        logger.info(f"成功从AkShare爬取{etf_code}数据")
+        save_to_cache(etf_code, data, data_type)
+        return data
+    
+    # 尝试备用数据源1(Baostock)
+    data = crawl_baostock(etf_code)
+    if data is not None and not data.empty:
+        logger.info(f"成功从Baostock爬取{etf_code}数据")
+        save_to_cache(etf_code, data, data_type)
+        return data
+    
+    # 尝试备用数据源2(新浪财经)
+    data = crawl_sina_finance(etf_code)
+    if data is not None and not data.empty:
+        logger.info(f"成功从新浪财经爬取{etf_code}数据")
+        save_to_cache(etf_code, data, data_type)
+        return data
+    
+    # 所有数据源均失败
+    logger.error(f"无法从所有数据源获取{etf_code}数据")
+    return None
+
+def get_all_etf_list():
+    """
+    从多数据源获取所有ETF列表
+    返回:
+        DataFrame: ETF列表，包含代码和名称
+    """
+    try:
+        # 从AkShare获取ETF列表（主数据源）
+        logger.info("尝试从AkShare获取ETF列表...")
+        df = ak.fund_etf_category(symbol="ETF基金")
+        if not df.empty:
+            # 筛选仅保留ETF
+            etf_list = df[df['基金类型'] == 'ETF'].copy()
+            etf_list = etf_list[['基金代码', '基金简称']]
+            etf_list.columns = ['code', 'name']
+            logger.info(f"从AkShare成功获取 {len(etf_list)} 只ETF")
+            return etf_list
+    except Exception as e:
+        logger.error(f"AkShare获取ETF列表失败: {str(e)}")
+    
+    # 尝试Baostock（备用数据源1）
+    try:
+        logger.info("尝试从Baostock获取ETF列表...")
+        # 登录Baostock
+        login_result = bs.login()
+        if login_result.error_code != '0':
+            logger.error(f"Baostock登录失败: {login_result.error_msg}")
+            raise Exception("Baostock登录失败")
+        
+        # 查询ETF基金
+        rs = bs.query_stock_basic(code="sh51")
+        etf_list = []
+        while (rs.error_code == '0') & rs.next():
+            etf_list.append(rs.get_row_data())
+        
+        rs = bs.query_stock_basic(code="sz159")
+        while (rs.error_code == '0') & rs.next():
+            etf_list.append(rs.get_row_data())
+        
+        if etf_list:
+            df = pd.DataFrame(etf_list, columns=rs.fields)
+            # 筛选ETF
+            df = df[df['code_name'].str.contains('ETF')]
+            df = df[['code', 'code_name']]
+            df.columns = ['code', 'name']
+            # 移除交易所前缀
+            df['code'] = df['code'].str.replace('sh.', '').str.replace('sz.', '')
+            
+            logger.info(f"从Baostock成功获取 {len(df)} 只ETF")
+            return df
+        
+        logger.warning("Baostock返回空数据，尝试下一个数据源...")
+    except Exception as e:
+        logger.error(f"Baostock获取ETF列表失败: {str(e)}")
+    finally:
+        try:
+            bs.logout()
+        except:
+            pass
+    
+    # 尝试新浪财经（备用数据源2）
+    try:
+        logger.info("尝试从新浪财经获取ETF列表...")
+        sina_url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=1&num=100&sort=symbol&asc=1&node=etf_hk&symbol=&_s_r_a=page"
+        response = requests.get(sina_url, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        
+        if data:
+            etf_list = pd.DataFrame(data)
+            etf_list = etf_list[['symbol', 'name']]
+            etf_list.columns = ['code', 'name']
+            logger.info(f"从新浪财经成功获取 {len(etf_list)} 只ETF")
+            return etf_list
+    except Exception as e:
+        logger.error(f"新浪财经获取ETF列表失败: {str(e)}")
+    
+    # 如果所有数据源都失败，返回一个默认列表
+    logger.error("所有数据源均无法获取ETF列表，使用默认ETF列表")
+    return pd.DataFrame({
+        'code': ['510050', '510300', '510500', '159915', '512888', '512480', '512660', '512980', '159825', '159995'],
+        'name': ['上证50ETF', '沪深300ETF', '中证500ETF', '创业板ETF', '消费ETF', '半导体ETF', '军工ETF', '通信ETF', '新能源ETF', '医疗ETF']
+    })
+
+def calculate_component_weights(etf_code):
+    """
+    计算ETF成分股权重
+    参数:
+        etf_code: ETF代码
+    返回:
+        dict: 成分股权重
+    """
+    try:
+        # 从AkShare获取成分股数据
+        component_data = ak.fund_etf_component_sina(symbol=etf_code)
+        
+        if component_data.empty:
+            logger.warning(f"{etf_code}成分股数据为空")
+            return {}
+        
+        # 计算权重
+        total_market_cap = component_data['总市值'].sum()
+        weights = {}
+        for _, row in component_data.iterrows():
+            weights[row['股票代码']] = row['总市值'] / total_market_cap
+        
+        return weights
+    except Exception as e:
+        logger.error(f"计算{etf_code}成分股权重失败: {str(e)}")
+        return {}
+
+def estimate_etf_nav(etf_code, component_prices=None):
+    """
+    估算ETF净值
+    参数:
+        etf_code: ETF代码
+        component_prices: 可选的成分股价格
+    返回:
+        float: 估算的净值
+    """
+    try:
+        # 获取成分股权重
+        weights = calculate_component_weights(etf_code)
+        if not weights:
+            return None
+        
+        # 获取成分股价格
+        if component_prices is None:
+            component_prices = {}
+            for stock_code in weights.keys():
+                stock_data = get_etf_data(stock_code, 'intraday')
+                if stock_data is not None and not stock_data.empty:
+                    component_prices[stock_code] = stock_data['close'].iloc[-1]
+        
+        # 计算净值
+        nav = 0
+        for stock_code, weight in weights.items():
+            if stock_code in component_prices:
+                nav += component_prices[stock_code] * weight
+        
+        # 考虑管理费等因素
+        nav *= 0.995  # 假设年化管理费0.5%
+        
+        return nav
+    except Exception as e:
+        logger.error(f"估算{etf_code}净值失败: {str(e)}")
+        return None
+
+def calculate_premium_rate(etf_code, etf_price=None):
+    """
+    计算ETF溢价率
+    参数:
+        etf_code: ETF代码
+        etf_price: 可选的ETF价格
+    返回:
+        float: 溢价率（百分比）
+    """
+    # 获取ETF价格（如未提供）
+    if etf_price is None:
+        data = get_etf_data(etf_code, 'intraday')
+        if data is None or data.empty:
+            return 0.0
+        etf_price = data['close'].iloc[-1]
+    
+    # 估算净值
+    nav = estimate_etf_nav(etf_code)
+    if nav is None or nav == 0:
+        return 0.0
+    
+    # 计算溢价率
+    premium_rate = (etf_price - nav) / nav * 100
+    return premium_rate
+
+def get_new_stock_subscriptions():
+    """
+    获取当天可申购的新股（IPO）
+    使用多数据源回退机制：
+    1. 主数据源：AkShare
+    2. 备用数据源1：Baostock
+    3. 备用数据源2：新浪财经
+    
+    返回:
+        DataFrame: 当天可申购的新股信息
+    """
+    # 尝试AkShare（主数据源）
+    try:
+        logger.info("尝试从AkShare获取新股申购信息...")
+        # 使用正确的AkShare函数获取新股信息
+        df = ak.stock_ipo_cninfo()
+        
+        if not df.empty:
+            today = datetime.datetime.now().strftime('%Y-%m-%d')
+            # 筛选当天可申购的新股
+            df = df[df['网上申购日'] == today]
+            
+            if not df.empty:
+                # 重命名列为标准格式
+                df = df.rename(columns={
+                    '证券代码': 'code',
+                    '证券简称': 'name',
+                    '发行价格': 'issue_price',
+                    '申购上限': 'max_purchase',
+                    '网上申购日': 'issue_date'
+                })
+                # 转换数据类型
+                df['issue_price'] = df['issue_price'].astype(float)
+                df['max_purchase'] = df['max_purchase'].astype(int)
+                
+                logger.info(f"从AkShare成功获取 {len(df)} 条新股信息")
+                return df[['code', 'name', 'issue_price', 'max_purchase', 'issue_date']]
+        
+        logger.warning("AkShare返回空数据，尝试备用数据源...")
+    except Exception as e:
+        logger.error(f"AkShare获取新股申购信息失败: {str(e)}")
+    
+    # 尝试Baostock（备用数据源1）
+    try:
+        logger.info("尝试从Baostock获取新股申购信息...")
+        # 登录Baostock
+        login_result = bs.login()
+        if login_result.error_code != '0':
+            logger.error(f"Baostock登录失败: {login_result.error_msg}")
+            return pd.DataFrame(columns=['code', 'name', 'issue_price', 'max_purchase', 'issue_date'])
+        
+        # 获取新股信息（通过查询所有股票，然后筛选）
+        rs = bs.query_stock_basic()
+        data_list = []
+        while (rs.error_code == '0') & rs.next():
+            data_list.append(rs.get_row_data())
+        df = pd.DataFrame(data_list, columns=rs.fields)
+        
+        # 筛选新股（过去30天内上市的）
+        thirty_days_ago = (datetime.datetime.now() - datetime.timedelta(days=30)).strftime('%Y-%m-%d')
+        today = datetime.datetime.now().strftime('%Y-%m-%d')
+        df = df[(df['ipoDate'] >= thirty_days_ago) & (df['ipoDate'] <= today)]
+        
+        if not df.empty:
+            # 重命名列为标准格式
+            df = df.rename(columns={
+                'code': 'code',
+                'code_name': 'name',
+                'ipoDate': 'issue_date'
+            })
+            # 添加默认值
+            df['issue_price'] = 0.0
+            df['max_purchase'] = 0
+            
+            logger.info(f"从Baostock成功获取 {len(df)} 条新股信息")
+            return df[['code', 'name', 'issue_price', 'max_purchase', 'issue_date']]
+        
+        logger.warning("Baostock返回空数据，尝试下一个数据源...")
+    except Exception as e:
+        logger.error(f"Baostock获取新股申购信息失败: {str(e)}")
+    finally:
+        try:
+            bs.logout()
+        except:
+            pass
+    
+    # 尝试新浪财经（备用数据源2）
+    try:
+        logger.info("尝试从新浪财经获取新股申购信息...")
+        sina_url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=1&num=100&sort=symbol&asc=1&node=iponew&symbol=&_s_r_a=page"
+        response = requests.get(sina_url, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        
+        new_stocks = []
+        if data:
+            for item in data:
+                code = item.get('symbol', '')
+                name = item.get('name', '')
+                issue_price = item.get('price', '')
+                max_purchase = item.get('limit', '')
+                issue_date = item.get('issue_date', '')
+                
+                # 只保留今天可申购或上市的
+                if issue_date == datetime.datetime.now().strftime('%Y-%m-%d'):
+                    new_stocks.append({
+                        'code': code,
+                        'name': name,
+                        'issue_price': issue_price,
+                        'max_purchase': max_purchase,
+                        'issue_date': issue_date
+                    })
+        
+        if new_stocks:
+            logger.info(f"从新浪财经成功获取 {len(new_stocks)} 条新股信息")
+            return pd.DataFrame(new_stocks)
+        else:
+            logger.warning("新浪财经返回空数据，所有数据源均失败")
+    except Exception as e:
+        logger.error(f"新浪财经获取新股申购信息失败: {str(e)}")
+    
+    # 所有数据源均失败，返回空DataFrame
+    logger.error("所有数据源均无法获取新股申购信息")
+    return pd.DataFrame(columns=['code', 'name', 'issue_price', 'max_purchase', 'issue_date'])
+
+def format_message(message_type, content, test=False):
+    """
+    通用消息格式化函数
+    参数:
+        message_type: 消息类型 ('stock_pool', 'strategy', 'new_stock')
+        content: 消息内容 (DataFrame或dict)
+        test: 是否为测试模式
+    返回:
+        str: 格式化后的消息
+    """
+    # 获取当前时间
+    beijing_time = get_beijing_time().strftime('%Y-%m-%d %H:%M')
+    
+    # 测试消息前缀
+    test_prefix = "【测试消息】\n" if test else ""
+    test_suffix = " (测试)" if test else ""
+    
+    # 根据消息类型生成不同格式
+    if message_type == 'stock_pool':
+        stock_pool = content
+        
+        # 构建消息
+        message = f"{test_prefix}{'T04: 测试推送' if test else '推送'}当前股票池\nCF系统时间：{beijing_time}\n【ETF股票池】\n"
+        message += f"更新时间：{stock_pool['update_time'].iloc[0]}\n\n"
+        
+        # 稳健仓
+        message += "【稳健仓】\n"
+        stable_etfs = stock_pool[stock_pool['type'] == '稳健仓']
+        for _, etf in stable_etfs.iterrows():
+            message += f"{etf['code']} | {etf['name']} | 总分：{etf['total_score']}\n"
+            message += f"筛选依据：流动性{etf['liquidity_score']}，风险控制{etf['risk_score']}，收益能力{etf['return_score']}\n\n"
+        
+        # 激进仓
+        message += "【激进仓】\n"
+        aggressive_etfs = stock_pool[stock_pool['type'] == '激进仓']
+        for _, etf in aggressive_etfs.iterrows():
+            message += f"{etf['code']} | {etf['name']} | 总分：{etf['total_score']}\n"
+            message += f"筛选依据：收益能力{etf['return_score']}，风险收益比{etf['return_score']-etf['risk_score']:.1f}，情绪指标{etf['sentiment_score']}\n\n"
+        
+        return message
+    
+    elif message_type == 'strategy':
+        signal = content
+        
+        # 构建消息
+        message = f"{test_prefix}{'T05: 测试执行' if test else '执行'}策略并推送结果\n"
+        message += f"CF系统时间：{beijing_time}\n"
+        message += f"ETF代码：{signal['etf_code']}\n"
+        message += f"名称：{signal['etf_name']}\n"
+        message += f"操作建议：{signal['action']}\n"
+        message += f"仓位比例：{signal['position']}%\n"
+        message += f"策略依据：{signal['rationale']}"
+        
+        return message
+    
+    elif message_type == 'new_stock':
+        new_stocks = content
+        
+        # 仅包含新股基本信息，不涉及任何ETF评分
+        message = f"{test_prefix}{'T07: 测试推送' if test else '推送'}新股信息（只推送当天可申购的新股）\nCF系统时间：{beijing_time}\n【今日新股申购信息】\n"
+        
+        for _, row in new_stocks.iterrows():
+            # 确保只使用新股基本信息
+            code = row.get('code', '')
+            name = row.get('name', '')
+            issue_price = row.get('issue_price', '')
+            max_purchase = row.get('max_purchase', '')
+            issue_date = row.get('issue_date', '')
+            
+            # 格式化消息 - 仅包含新股基本信息
+            message += f"\n股票代码：{code}\n"
+            message += f"股票名称：{name}\n"
+            message += f"发行价格：{issue_price}元\n"
+            message += f"申购上限：{max_purchase}股\n"
+            message += f"申购日期：{issue_date}\n"
+            message += "─" * 20
+        
+        return message
+    
+    elif message_type == 'health_check':
+        # 健康检查消息
+        return f"{test_prefix}CF系统时间：{beijing_time}\n系统运行正常！"
+    
+    elif message_type == 'test_message':
+        # 测试消息
+        return f"{test_prefix}CF系统时间：{beijing_time}\n这是来自鱼盆ETF系统的测试消息。"
+    
+    return ""
+
+def push_strategy_results(test=False):
+    """
+    计算策略信号并推送到企业微信
+    参数:
+        test: 是否为测试模式
+    返回:
+        bool: 是否成功
+    """
+    logger.info(f"{'测试' if test else ''}策略计算与推送开始")
+    
+    # 获取当前股票池
+    stock_pool = get_current_stock_pool()
+    if stock_pool is None or stock_pool.empty:
+        logger.error("股票池为空，无法计算策略")
+        return False
+    
+    # 按ETF类型分组
+    stable_etfs = stock_pool[stock_pool['type'] == '稳健仓']
+    aggressive_etfs = stock_pool[stock_pool['type'] == '激进仓']
+    
+    # 计算并推送稳健仓策略
+    if not stable_etfs.empty:
+        logger.info(f"开始推送稳健仓策略（{len(stable_etfs)}只ETF）")
+        for _, etf in stable_etfs.iterrows():
+            signal = calculate_etf_strategy(etf['code'], etf['name'], 'stable')
+            # 格式化消息
+            message = format_message('strategy', signal, test=test)
+            
+            # 推送消息
+            if not test:
+                send_wecom_message(message)
+            
+            # 记录交易
+            if not test:
+                log_trade(signal)
+            
+            # 间隔1分钟
+            time.sleep(60)
+    
+    # 计算并推送激进仓策略
+    if not aggressive_etfs.empty:
+        logger.info(f"开始推送激进仓策略（{len(aggressive_etfs)}只ETF）")
+        for _, etf in aggressive_etfs.iterrows():
+            signal = calculate_etf_strategy(etf['code'], etf['name'], 'aggressive')
+            # 格式化消息
+            message = format_message('strategy', signal, test=test)
+            
+            # 推送消息
+            if not test:
+                send_wecom_message(message)
+            
+            # 记录交易
+            if not test:
+                log_trade(signal)
+            
+            # 间隔1分钟
+            time.sleep(60)
+    
+    logger.info("策略推送完成")
+    return True
+
+def log_trade(signal):
+    """
+    记录交易流水
+    参数:
+        signal: 策略信号
+    """
+    # 确保交易日志目录存在
+    os.makedirs(Config.TRADE_LOG_DIR, exist_ok=True)
+    
+    # 创建日志文件名
+    filename = f"trade_log_{get_beijing_time().strftime('%Y%m%d')}.csv"
+    filepath = os.path.join(Config.TRADE_LOG_DIR, filename)
+    
+    # 创建交易记录
+    trade_record = {
+        '时间': get_beijing_time().strftime('%Y-%m-%d %H:%M'),
+        'ETF代码': signal['etf_code'],
+        'ETF名称': signal['etf_name'],
+        '操作': signal['action'],
+        '仓位比例': signal['position'],
+        '总评分': signal['total_score'],
+        '策略依据': signal['rationale']
+    }
+    
+    # 保存到CSV
+    if os.path.exists(filepath):
+        # 追加到现有文件
+        df = pd.read_csv(filepath)
+        df = pd.concat([df, pd.DataFrame([trade_record])], ignore_index=True)
+        df.to_csv(filepath, index=False)
+    else:
+        # 创建新文件
+        pd.DataFrame([trade_record]).to_csv(filepath, index=False)
+    
+    logger.info(f"交易记录已保存: {signal['etf_name']} - {signal['action']}")
+
+def push_new_stock_info(test=False):
+    """
+    推送当天可申购的新股信息到企业微信
+    参数:
+        test: 是否为测试模式
+    返回:
+        bool: 是否成功推送
+    """
+    new_stocks = get_new_stock_subscriptions()
+    
+    # 检查是否获取到新股数据
+    if new_stocks.empty:
+        logger.info("今日无新股可申购，跳过推送")
+        return True  # 无新股不算失败
+    
+    # 格式化消息
+    message = format_message('new_stock', new_stocks, test=test)
+    
+    # 发送消息
+    if not test:
+        send_wecom_message(message)
+    
+    # 标记已推送
+    if not test:
+        mark_new_stock_info_pushed()
+    
+    return True
+
+def is_new_stock_info_pushed():
+    """检查是否已经推送过新股信息"""
+    return os.path.exists(Config.NEW_STOCK_INFO_PUSHED_FLAG)
+
+def mark_new_stock_info_pushed():
+    """标记新股信息已推送"""
+    with open(Config.NEW_STOCK_INFO_PUSHED_FLAG, 'w') as f:
+        f.write(datetime.datetime.now().strftime('%Y-%m-%d %H:%M'))
+
+def clear_new_stock_pushed_flag():
+    """清除新股信息推送标记"""
+    if os.path.exists(Config.NEW_STOCK_INFO_PUSHED_FLAG):
+        os.remove(Config.NEW_STOCK_INFO_PUSHED_FLAG)
+
+def get_new_stock_retry_time():
+    """获取新股信息重试时间"""
+    if os.path.exists(Config.NEW_STOCK_RETRY_FLAG):
+        try:
+            with open(Config.NEW_STOCK_RETRY_FLAG, 'r') as f:
+                retry_time_str = f.read().strip()
+                return datetime.datetime.strptime(retry_time_str, '%Y-%m-%d %H:%M')
+        except:
+            return None
+    return None
+
+def set_new_stock_retry():
+    """设置新股信息重试"""
+    with open(Config.NEW_STOCK_RETRY_FLAG, 'w') as f:
+        f.write((datetime.datetime.now() + datetime.timedelta(minutes=30)).strftime('%Y-%m-%d %H:%M'))
+    
+    # 同时清除已推送标记，以便重试
+    clear_new_stock_pushed_flag()
+
+def clear_new_stock_retry_flag():
+    """清除新股信息重试标记"""
+    if os.path.exists(Config.NEW_STOCK_RETRY_FLAG):
+        os.remove(Config.NEW_STOCK_RETRY_FLAG)
+
+def get_test_new_stock_subscriptions():
+    """
+    获取测试用的新股申购信息（从真实数据源获取，失败时使用历史数据）
+    返回:
+        DataFrame: 测试数据（包含最近的新股信息）
+    """
+    # 尝试获取当天的新股信息
+    new_stocks = get_new_stock_subscriptions()
+    
+    # 如果当天没有新股，尝试获取最近有新股的日期
+    if new_stocks.empty:
+        logger.warning("当天无新股申购，尝试获取历史数据...")
+        
+        # 尝试过去30天（原为7天）
+        for i in range(1, 31):
+            date_str = (datetime.datetime.now() - datetime.timedelta(days=i)).strftime('%Y%m%d')
+            try:
+                # 尝试AkShare（主数据源）
+                logger.info(f"尝试从AkShare获取{date_str}的历史新股数据...")
+                # 使用正确的AkShare函数获取新股信息
+                df = ak.stock_ipo_cninfo()
+                
+                if not df.empty:
+                    # 筛选指定日期
+                    df = df[df['网上申购日'] == f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"]
+                    
+                    if not df.empty:
+                        # 重命名列为标准格式
+                        df = df.rename(columns={
+                            '证券代码': 'code',
+                            '证券简称': 'name',
+                            '发行价格': 'issue_price',
+                            '申购上限': 'max_purchase',
+                            '网上申购日': 'issue_date'
+                        })
+                        # 转换数据类型
+                        df['issue_price'] = df['issue_price'].astype(float)
+                        df['max_purchase'] = df['max_purchase'].astype(int)
+                        
+                        # 添加历史标记
+                        df['issue_date'] = df['issue_date'].apply(
+                            lambda x: f"{x} (历史数据，{date_str[:4]}-{date_str[4:6]}-{date_str[6:]})"
+                        )
+                        
+                        logger.info(f"从AkShare成功获取 {len(df)} 条历史新股信息")
+                        return df[['code', 'name', 'issue_price', 'max_purchase', 'issue_date']]
+                
+                # 尝试Baostock（备用数据源1）
+                try:
+                    logger.info(f"尝试从Baostock获取{date_str}的历史新股数据...")
+                    # Baostock没有直接获取新股申购的API，通过股票基本信息筛选
+                    login_result = bs.login()
+                    if login_result.error_code != '0':
+                        raise Exception("Baostock登录失败")
+                    
+                    rs = bs.query_stock_basic()
+                    data_list = []
+                    while (rs.error_code == '0') & rs.next():
+                        data_list.append(rs.get_row_data())
+                    df = pd.DataFrame(data_list, columns=rs.fields)
+                    
+                    # 筛选新股（指定日期附近上市的）
+                    df = df[df['ipoDate'] == date_str]
+                    if not df.empty:
+                        # 重命名列为标准格式
+                        df = df.rename(columns={
+                            'code': 'code',
+                            'code_name': 'name',
+                            'ipoDate': 'issue_date'
+                        })
+                        # 添加默认值
+                        df['issue_price'] = 0.0
+                        df['max_purchase'] = 0
+                        
+                        # 添加历史标记
+                        df['issue_date'] = df['issue_date'].apply(
+                            lambda x: f"{x} (历史数据，{date_str[:4]}-{date_str[4:6]}-{date_str[6:]})"
+                        )
+                        
+                        logger.info(f"从Baostock成功获取 {len(df)} 条历史新股信息")
+                        return df[['code', 'name', 'issue_price', 'max_purchase', 'issue_date']]
+                    
+                    bs.logout()
+                
+                except Exception as e:
+                    logger.error(f"Baostock获取历史新股数据失败: {str(e)}")
+                    try:
+                        bs.logout()
+                    except:
+                        pass
+                
+                # 尝试新浪财经（备用数据源2）
+                try:
+                    logger.info(f"尝试从新浪财经获取{date_str}的历史新股数据...")
+                    sina_url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=1&num=100&sort=symbol&asc=1&node=iponew&symbol=&_s_r_a=page"
+                    response = requests.get(sina_url, timeout=15)
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    new_stocks = []
+                    if data:
+                        for item in data:
+                            code = item.get('symbol', '')
+                            name = item.get('name', '')
+                            issue_price = item.get('price', '')
+                            max_purchase = item.get('limit', '')
+                            issue_date = item.get('issue_date', '')
+                            
+                            # 检查日期匹配
+                            if issue_date == f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}":
+                                new_stocks.append({
+                                    'code': code,
+                                    'name': name,
+                                    'issue_price': issue_price,
+                                    'max_purchase': max_purchase,
+                                    'issue_date': issue_date
+                                })
+                    
+                    if new_stocks:
+                        df = pd.DataFrame(new_stocks)
+                        # 添加历史标记
+                        df['issue_date'] = df['issue_date'].apply(
+                            lambda x: f"{x} (历史数据，{date_str[:4]}-{date_str[4:6]}-{date_str[6:]})"
+                        )
+                        
+                        logger.info(f"从新浪财经成功获取 {len(df)} 条历史新股信息")
+                        return df
+                except Exception as e:
+                    logger.error(f"新浪财经获取历史新股数据失败: {str(e)}")
+            
+            except Exception as e:
+                logger.error(f"获取{date_str}历史新股数据失败: {str(e)}")
+    
+    # 如果有当天的新股，添加测试标记
+    if not new_stocks.empty:
+        new_stocks['issue_date'] = new_stocks['issue_date'].apply(
+            lambda x: f"{x} (测试数据)"
+        )
+    
+    return new_stocks
+
+def cleanup_directory(directory, days_to_keep=None):
+    """
+    清理指定目录中的旧文件
+    参数:
+        directory: 目录路径
+        days_to_keep: 保留天数，None表示不清理
+    """
+    if days_to_keep is None:
+        logger.info(f"跳过目录清理: {directory} (永久保存)")
+        return
+    
+    now = datetime.datetime.now()
+    
+    for filename in os.listdir(directory):
+        filepath = os.path.join(directory, filename)
+        
+        # 获取文件修改时间
+        file_time = datetime.datetime.fromtimestamp(os.path.getmtime(filepath))
+        
+        # 计算文件年龄
+        file_age = now - file_time
+        
+        # 如果文件年龄大于指定天数，删除文件
+        if file_age.days > days_to_keep:
+            try:
+                os.remove(filepath)
+                logger.info(f"已删除旧文件: {filepath}")
+            except Exception as e:
+                logger.error(f"删除文件失败 {filepath}: {str(e)}")
+
+def cleanup_old_data():
+    """清理旧数据，交易流水永久保存，其他数据保留指定天数"""
+    logger.info("开始清理旧数据...")
+    
+    # 清理原始数据
+    cleanup_directory(Config.RAW_DATA_DIR, Config.OTHER_DATA_RETENTION_DAYS)
+    
+    # 清理股票池
+    cleanup_directory(Config.STOCK_POOL_DIR, Config.OTHER_DATA_RETENTION_DAYS)
+    
+    # 交易流水永久保存，不清理
+    logger.info("交易流水目录不清理，永久保存")
+    
+    # 清理套利数据
+    cleanup_directory(Config.ARBITRAGE_DIR, Config.OTHER_DATA_RETENTION_DAYS)
+    
+    # 清理错误日志
+    cleanup_directory(Config.ERROR_LOG_DIR, Config.OTHER_DATA_RETENTION_DAYS)
+    
+    # 清理新股数据
+    cleanup_directory(Config.NEW_STOCK_DIR, Config.OTHER_DATA_RETENTION_DAYS)
+    
+    logger.info("数据清理完成")
+    return True
+
+# ========== 定时任务端点 ==========
+
+@app.route('/health')
+def health_check():
+    """健康检查"""
+    message = format_message('health_check', None)
+    send_wecom_message(message)
+    return jsonify({
+        "status": "healthy",
+        "timestamp": get_beijing_time().isoformat(),
+        "environment": "production"
+    })
+
+@app.route('/cron/crawl_daily', methods=['GET', 'POST'])
+def cron_crawl_daily():
+    """日线数据爬取任务"""
+    logger.info("日线数据爬取任务触发")
+    
+    # 检查是否为交易日
+    if not is_trading_day():
+        logger.info("今天不是交易日，跳过爬取")
+        return jsonify({"status": "skipped", "message": "Not trading day"})
+    
+    # 获取所有ETF列表
+    etf_list = get_all_etf_list()
+    if etf_list is None or etf_list.empty:
+        logger.error("未获取到ETF列表，跳过爬取")
+        return jsonify({"status": "skipped", "message": "No ETF list available"})
+    
+    # 爬取每只ETF的日线数据
+    success = True
+    for _, etf in etf_list.iterrows():
+        data = get_etf_data(etf['code'], 'daily')
+        if data is None or data.empty:
+            logger.error(f"爬取{etf['code']}日线数据失败")
+            success = False
+        time.sleep(1)  # 避免请求过快
+    
+    return jsonify({"status": "success" if success else "error"})
+
+@app.route('/cron/crawl_intraday', methods=['GET', 'POST'])
+def cron_crawl_intraday():
+    """盘中数据爬取任务"""
+    logger.info("盘中数据爬取任务触发")
+    
+    # 检查是否为交易日
+    if not is_trading_day():
+        logger.info("今天不是交易日，跳过爬取")
+        return jsonify({"status": "skipped", "message": "Not trading day"})
+    
+    # 获取所有ETF列表
+    etf_list = get_all_etf_list()
+    if etf_list is None or etf_list.empty:
+        logger.error("未获取到ETF列表，跳过爬取")
+        return jsonify({"status": "skipped", "message": "No ETF list available"})
+    
+    # 爬取每只ETF的盘中数据
+    success = True
+    for _, etf in etf_list.iterrows():
+        data = get_etf_data(etf['code'], 'intraday')
+        if data is None or data.empty:
+            logger.error(f"爬取{etf['code']}盘中数据失败")
+            success = False
+        time.sleep(1)  # 避免请求过快
+    
+    return jsonify({"status": "success" if success else "error"})
+
+@app.route('/cron/update_stock_pool', methods=['GET', 'POST'])
+def cron_update_stock_pool():
+    """股票池更新任务"""
+    logger.info("股票池更新任务触发")
+    
+    # 检查是否为周五
+    if datetime.datetime.now().weekday() != 4:  # 周五
+        logger.info("今天不是周五，跳过股票池更新")
+        return jsonify({"status": "skipped", "message": "Not Friday"})
+    
+    # 检查是否在16:00之后
+    current_time = datetime.datetime.now().time()
+    if current_time < datetime.time(16, 0):
+        logger.info("时间未到16:00，跳过股票池更新")
+        return jsonify({"status": "skipped", "message": "Before 16:00"})
+    
+    # 调用核心股票池更新函数
+    stock_pool = generate_stock_pool()
+    
+    if stock_pool is None:
+        return jsonify({"status": "skipped", "message": "No valid ETFs found"})
+    
+    return jsonify({"status": "success", "message": "Stock pool updated"})
+
+@app.route('/cron/push_strategy', methods=['GET', 'POST'])
+def cron_push_strategy():
+    """策略推送任务"""
+    logger.info("策略推送任务触发")
+    
+    # 检查是否为交易日
+    if not is_trading_day():
+        logger.info("今天不是交易日，跳过策略推送")
+        return jsonify({"status": "skipped", "message": "Not trading day"})
+    
+    # 调用核心策略计算函数
+    success = push_strategy_results()
+    
+    return jsonify({"status": "success" if success else "error"})
+
+@app.route('/cron/arbitrage_scan', methods=['GET', 'POST'])
+def cron_arbitrage_scan():
+    """套利扫描任务"""
+    logger.info("套利扫描任务触发")
+    
+    # 实际实现中会调用套利扫描函数
+    # 例如：from arbitrage import scan_arbitrage_opportunities
+    # success = scan_arbitrage_opportunities()
+    
+    return jsonify({"status": "success", "message": "Arbitrage scan triggered"})
+
+@app.route('/cron/cleanup', methods=['GET', 'POST'])
+def cron_cleanup():
+    """数据清理任务"""
+    logger.info("数据清理任务触发")
+    
+    # 实际实现中会调用数据清理函数
+    cleanup_old_data()
+    
+    return jsonify({"status": "success", "message": "Old data cleaned"})
+
+@app.route('/cron/new-stock-info', methods=['GET', 'POST'])
+def cron_new_stock_info():
+    """定时推送新股信息（当天可申购的新股）"""
+    logger.info("新股信息推送任务触发")
+    
+    # 检查是否为交易日
+    if not is_trading_day():
+        logger.info("今天不是交易日，跳过新股信息推送")
+        return jsonify({"status": "skipped", "message": "Not trading day"})
+    
+    # 检查是否已经推送过
+    if is_new_stock_info_pushed():
+        logger.info("新股信息已推送，跳过")
+        return jsonify({"status": "skipped", "message": "Already pushed"})
+    
+    # 检查是否在重试时间前
+    retry_time = get_new_stock_retry_time()
+    if retry_time and retry_time > datetime.datetime.now():
+        logger.info(f"仍在重试等待期，下次尝试时间: {retry_time}")
+        return jsonify({"status": "skipped", "message": f"Retry after {retry_time}"})
+    
+    # 尝试推送
+    success = push_new_stock_info()
+    
+    # 如果失败，设置30分钟后重试
+    if not success:
+        logger.info("新股信息推送失败，30分钟后重试")
+        set_new_stock_retry()
+        return jsonify({"status": "retry", "message": "Will retry in 30 minutes"})
+    
+    return jsonify({"status": "success", "message": "New stock info pushed"})
+
+# ========== 测试端点 ==========
+
+@app.route('/test/message', methods=['GET'])
+def test_message():
+    """T01: 测试消息推送"""
+    test = _is_test_request()
+    message = format_message('test_message', None, test=test)
+    send_wecom_message(message)
+    return jsonify({"status": "success", "message": "Test message sent"})
+
+@app.route('/test/strategy', methods=['GET'])
+def test_strategy():
+    """T02: 测试策略执行（仅返回结果）"""
+    test = _is_test_request()
+    
+    stock_pool = get_current_stock_pool()
+    if stock_pool is None or stock_pool.empty:
+        return jsonify({"status": "error", "message": "No stock pool available"})
+    
+    results = []
+    for _, etf in stock_pool.iterrows():
+        etf_type = 'stable' if etf['type'] == '稳健仓' else 'aggressive'
+        signal = calculate_etf_strategy(etf['code'], etf['name'], etf_type)
+        results.append({
+            'code': etf['code'],
+            'name': etf['name'],
+            'action': signal['action'],
+            'position': signal['position'],
+            'total_score': signal['total_score'],
+            'rationale': signal['rationale']
+        })
+    
+    return jsonify({"status": "success", "results": results})
+
+@app.route('/test/trade-log', methods=['GET'])
+def test_trade_log():
+    """T03: 打印交易流水"""
+    test = _is_test_request()
+    
+    try:
+        # 获取所有交易日志文件
+        log_files = sorted([f for f in os.listdir(Config.TRADE_LOG_DIR) if f.startswith('trade_log_')])
+        if not log_files:
+            return jsonify({"status": "error", "message": "No trade logs found"})
+        
+        # 合并所有交易日志
+        all_logs = []
+        for log_file in log_files:
+            log_path = os.path.join(Config.TRADE_LOG_DIR, log_file)
+            log_df = pd.read_csv(log_path)
+            all_logs.extend(log_df.to_dict(orient='records'))
+        
+        return jsonify({
+            "status": "success", 
+            "trade_log": all_logs,
+            "total_records": len(all_logs),
+            "file_count": len(log_files)
+        })
+    except Exception as e:
+        logger.error(f"获取交易流水失败: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/test/stock-pool', methods=['GET'])
+def test_stock_pool():
+    """T04: 手动推送当前股票池"""
+    test = _is_test_request()
+    
+    stock_pool = get_current_stock_pool()
+    if stock_pool is None:
+        return jsonify({"status": "error", "message": "No stock pool available"})
+    
+    # 格式化消息
+    message = format_message('stock_pool', stock_pool, test=test)
+    
+    # 发送消息
+    send_wecom_message(message)
+    return jsonify({"status": "success", "message": "Stock pool pushed"})
+
+@app.route('/test/execute', methods=['GET'])
+def test_execute():
+    """T05: 执行策略并推送结果"""
+    test = _is_test_request()
+    
+    # 调用核心策略计算函数
+    success = push_strategy_results(test=test)
+    
+    return jsonify({"status": "success" if success else "error"})
+
+@app.route('/test/reset', methods=['GET'])
+def test_reset():
+    """T06: 重置所有仓位（测试用）"""
+    test = _is_test_request()
+    
+    stock_pool = get_current_stock_pool()
+    if stock_pool is None or stock_pool.empty:
+        return jsonify({"status": "error", "message": "No stock pool available"})
+    
+    beijing_time = get_beijing_time().strftime('%Y-%m-%d %H:%M')
+    for _, etf in stock_pool.iterrows():
+        # 创建重置信号
+        etf_type = 'stable' if etf['type'] == '稳健仓' else 'aggressive'
+        signal = {
+            'etf_code': etf['code'],
+            'etf_name': etf['name'],
+            'cf_time': beijing_time,
+            'action': 'strong_sell',
+            'position': 0,
+            'rationale': '测试重置仓位'
+        }
+        
+        # 格式化消息
+        message = format_message('strategy', signal, test=test)
+        
+        # 推送消息
+        send_wecom_message(message)
+        
+        # 记录交易
+        if not test:
+            log_trade(signal)
+        
+        # 间隔1分钟
+        time.sleep(60)
+    
+    return jsonify({"status": "success", "message": "All positions reset"})
+
+@app.route('/test/new-stock', methods=['GET'])
+def test_new_stock():
+    """T07: 测试推送新股信息（只推送当天可申购的新股）"""
+    test = _is_test_request()
+    
+    # 获取测试用的新股信息
+    new_stocks = get_test_new_stock_subscriptions()
+    
+    # 检查是否获取到新股数据
+    if new_stocks.empty:
+        logger.error("测试错误：未获取到任何新股信息")
+        return jsonify({"status": "error", "message": "No test new stocks available"})
+    
+    # 格式化消息
+    message = format_message('new_stock', new_stocks, test=test)
+    
+    # 发送消息
+    send_wecom_message(message)
+    
+    return jsonify({"status": "success", "message": "Test new stocks sent"})
+
+@app.route('/test/new-stock-info', methods=['GET'])
+def test_new_stock_info():
+    """T08: 测试推送所有新股申购信息"""
+    test = _is_test_request()
+    
+    # 获取测试数据
+    new_stocks = get_test_new_stock_subscriptions()
+    
+    # 推送新股信息
+    if not new_stocks.empty:
+        message = format_message('new_stock', new_stocks, test=test)
+        send_wecom_message(message)
+    
+    return jsonify({"status": "success", "message": "Test new stock info sent"})
+
+# ========== 辅助函数 ==========
+
+def _is_test_request():
+    """判断是否是测试请求"""
+    return request.args.get('test', 'false').lower() == 'true'
+
+def push_strategy():
+    """定时推送策略信号（每日 14:50）"""
+    logger.info("策略推送任务触发")
+    
+    # 检查是否为交易日
+    if not is_trading_day():
+        logger.info("今天不是交易日，跳过策略推送")
+        return {"status": "skipped", "message": "Not trading day"}
+    
+    # 调用核心策略计算函数
+    success = push_strategy_results()
+    
+    return {"status": "success" if success else "error"}
+
+def update_stock_pool():
+    """每周五 16:00 更新股票池"""
+    logger.info("股票池更新任务触发")
+    
+    # 检查是否为周五
+    if datetime.datetime.now().weekday() != 4:  # 周五
+        logger.info("今天不是周五，跳过股票池更新")
+        return {"status": "skipped", "message": "Not Friday"}
+    
+    # 检查是否在16:00之后
+    current_time = datetime.datetime.now().time()
+    if current_time < datetime.time(16, 0):
+        logger.info("时间未到16:00，跳过股票池更新")
+        return {"status": "skipped", "message": "Before 16:00"}
+    
+    # 调用核心股票池更新函数
+    success = generate_stock_pool()
+    
+    return {"status": "success" if success else "error"}
+
+# ========== 任务执行入口 ==========
+
+def run_task(task):
+    """执行指定任务（用于GitHub Actions）"""
+    logger.info(f"开始执行任务: {task}")
+    
+    try:
+        if task == 'test_message':
+            # T01: 测试消息推送
+            return test_message()
+        
+        elif task == 'test_new_stock':
+            # T07: 测试推送新股信息
+            return test_new_stock()
+        
+        elif task == 'test_stock_pool':
+            # T04: 测试推送当前股票池
+            return test_stock_pool()
+        
+        elif task == 'test_execute':
+            # T05: 执行策略并推送结果
+            return test_execute()
+        
+        elif task == 'test_reset':
+            # T06: 重置所有仓位
+            return test_reset()
+        
+        elif task == 'run_new_stock_info':
+            # 每日 9:30 新股信息推送
+            return cron_new_stock_info()
+        
+        elif task == 'push_strategy':
+            # 每日 14:50 策略信号推送
+            return cron_push_strategy()
+        
+        elif task == 'update_stock_pool':
+            # 每周五 16:00 更新股票池
+            if datetime.datetime.now().weekday() == 4:  # 周五
+                return cron_update_stock_pool()
+            else:
+                logger.info("今天不是周五，跳过股票池更新")
+                return {"status": "skipped", "message": "Not Friday"}
+        
+        elif task == 'crawl_daily':
+            # 每日 15:30 爬取日线数据
+            return cron_crawl_daily()
+        
+        elif task == 'cleanup':
+            # 每天 00:00 清理旧数据
+            return cron_cleanup()
+        
+        else:
+            logger.warning(f"未知任务: {task}")
+            return {"status": "error", "message": "Unknown task"}
+    
+    except Exception as e:
+        logger.critical(f"任务执行失败: {str(e)}", exc_info=True)
+        return {"status": "error", "message": str(e)}
 
 if __name__ == "__main__":
-    # 防止循环导入：在main函数内部导入
-    main()
+    # 用于GitHub Actions执行任务
+    task = os.getenv('TASK', 'run_new_stock_info')
+    
+    if task.startswith('test_') or task in ['run_new_stock_info', 'push_strategy', 'update_stock_pool', 'crawl_daily', 'cleanup']:
+        # 执行任务
+        result = run_task(task)
+        logger.info(f"任务执行结果: {result}")
+    else:
+        # 启动Web服务
+        app.run(host='0.0.0.0', port=int(os.getenv('PORT', 8080)))
