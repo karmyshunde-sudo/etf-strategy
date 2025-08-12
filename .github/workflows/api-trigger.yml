@@ -27,12 +27,14 @@ jobs:
       - name: Trigger main workflow
         uses: actions/github-script@v7
         with:
-          gith-token: ${{ secrets.GITH_TOKEN }}
+          # 修复1: 更正参数名为 github-token
+          github-token: ${{ secrets.GITH_TOKEN }}
           script: |
             await github.rest.actions.createWorkflowDispatch({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              workflow_id: 'schedule.yml',
+              # 修复2: 移除 .yml 扩展名
+              workflow_id: 'schedule',
               ref: 'main',
               inputs: {
                 task: '${{ inputs.task }}'
