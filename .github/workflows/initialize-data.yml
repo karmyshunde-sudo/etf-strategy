@@ -1,0 +1,39 @@
+name: Initialize Data Directories
+
+on:
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  init-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0  # 确保能推送变更
+      
+      - name: Create data directories
+        run: |
+          mkdir -p data/raw
+          mkdir -p data/stock_pool
+          mkdir -p data/trade_log
+          mkdir -p data/error_log
+          mkdir -p data/new_stock
+          # 创建占位文件确保Git能跟踪空目录
+          touch data/.gitkeep
+          touch data/raw/.gitkeep
+          touch data/stock_pool/.gitkeep
+          touch data/trade_log/.gitkeep
+          touch data/error_log/.gitkeep
+          touch data/new_stock/.gitkeep
+      
+      - name: Commit and push data directories
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add data/
+          git commit -m "Initialize data directories" || echo "No changes to commit"
+          git push origin main
