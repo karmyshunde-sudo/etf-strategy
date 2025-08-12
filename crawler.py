@@ -505,22 +505,22 @@ def get_new_stock_subscriptions():
     # 尝试AkShare（主数据源）
     try:
         logger.info("尝试从AkShare获取新股申购信息...")
-        # 修正函数名：使用正确的 stock_ipos() API
-        df = ak.stock_ipos()
+        # 使用正确的AkShare函数获取新股信息
+        df = ak.stock_ipo_cninfo()
         
         if not df.empty:
             today = datetime.now().strftime('%Y-%m-%d')
-            # 同时筛选申购日和上市日
-            df = df[(df['issue_date'] == today) | (df['listing_date'] == today)]
+            # 筛选当天可申购的新股
+            df = df[df['网上申购日'] == today]
             
             if not df.empty:
                 # 重命名列为标准格式
                 df = df.rename(columns={
-                    'code': 'code',
-                    'name': 'name',
-                    'price': 'issue_price',
-                    'limit': 'max_purchase',
-                    'issue_date': 'issue_date'
+                    '证券代码': 'code',
+                    '证券简称': 'name',
+                    '发行价格': 'issue_price',
+                    '申购上限': 'max_purchase',
+                    '网上申购日': 'issue_date'
                 })
                 # 转换数据类型
                 df['issue_price'] = df['issue_price'].astype(float)
@@ -616,6 +616,37 @@ def get_new_stock_subscriptions():
     logger.error("所有数据源均无法获取新股申购信息")
     return pd.DataFrame(columns=['code', 'name', 'issue_price', 'max_purchase', 'issue_date'])
 
+def format_new_stock_subscriptions_message(new_stocks):
+    """
+    格式化新股申购信息消息
+    参数:
+        new_stocks: 新股DataFrame
+    返回:
+        str: 格式化后的消息
+    """
+    if new_stocks.empty:
+        return "今日无新股可申购"
+    
+    # 仅包含新股基本信息，不涉及任何ETF评分
+    message = "【今日新股申购信息】\n"
+    for _, row in new_stocks.iterrows():
+        # 确保只使用新股基本信息
+        code = row.get('code', '')
+        name = row.get('name', '')
+        issue_price = row.get('issue_price', '')
+        max_purchase = row.get('max_purchase', '')
+        issue_date = row.get('issue_date', '')
+        
+        # 格式化消息 - 仅包含新股基本信息
+        message += f"\n股票代码：{code}\n"
+        message += f"股票名称：{name}\n"
+        message += f"发行价格：{issue_price}元\n"
+        message += f"申购上限：{max_purchase}股\n"
+        message += f"申购日期：{issue_date}\n"
+        message += "─" * 20
+    
+    return message
+
 def is_new_stock_info_pushed():
     """检查是否已经推送过新股信息"""
     # 动态导入Config，避免循环导入问题
@@ -692,22 +723,21 @@ def get_test_new_stock_subscriptions():
             try:
                 # 尝试AkShare（主数据源）
                 logger.info(f"尝试从AkShare获取{date_str}的历史新股数据...")
-                # 修正函数名：使用正确的 stock_ipos() API
-                df = ak.stock_ipos(date=date_str)
+                # 使用正确的AkShare函数获取新股信息
+                df = ak.stock_ipo_cninfo()
                 
                 if not df.empty:
-                    # 同时筛选申购日和上市日
-                    df = df[(df['issue_date'] == f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}") | 
-                            (df['listing_date'] == f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}")]
+                    # 筛选指定日期
+                    df = df[df['网上申购日'] == f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"]
                     
                     if not df.empty:
                         # 重命名列为标准格式
                         df = df.rename(columns={
-                            'code': 'code',
-                            'name': 'name',
-                            'price': 'issue_price',
-                            'limit': 'max_purchase',
-                            'issue_date': 'issue_date'
+                            '证券代码': 'code',
+                            '证券简称': 'name',
+                            '发行价格': 'issue_price',
+                            '申购上限': 'max_purchase',
+                            '网上申购日': 'issue_date'
                         })
                         # 转换数据类型
                         df['issue_price'] = df['issue_price'].astype(float)
