@@ -163,6 +163,7 @@ import datetime
 import pytz
 import shutil
 import requests
+import json
 import akshare as ak
 import baostock as bs
 from flask import Flask, request, jsonify, has_app_context
@@ -1047,7 +1048,7 @@ def crawl_sina_finance(etf_code):
         
         # 解析JSON响应
         data = response.json()
-        if not 
+        if not data:
             return None
         
         # 转换为DataFrame
@@ -1182,7 +1183,7 @@ def get_all_etf_list():
         response.raise_for_status()
         data = response.json()
         
-        if 
+        if data:
             etf_list = pd.DataFrame(data)
             etf_list = etf_list[['symbol', 'name']]
             etf_list.columns = ['code', 'name']
@@ -1346,7 +1347,7 @@ def get_new_stock_subscriptions():
         data = response.json()
         
         new_stocks = []
-        for item in 
+        for item in data:
             code = item.get('symbol', '')
             name = item.get('name', '')
             issue_price = item.get('price', '')
@@ -1428,7 +1429,7 @@ def get_new_stock_listings():
         data = response.json()
         
         new_listings = []
-        for item in 
+        for item in data:
             code = item.get('symbol', '')
             name = item.get('name', '')
             issue_price = item.get('price', '')
@@ -1510,7 +1511,7 @@ def get_test_new_stock_subscriptions():
             data = response.json()
             
             new_stocks = []
-            for item in 
+            for item in data:
                 code = item.get('symbol', '')
                 name = item.get('name', '')
                 issue_price = item.get('price', '')
@@ -1592,7 +1593,7 @@ def get_test_new_stock_listings():
             data = response.json()
             
             new_listings = []
-            for item in 
+            for item in data:
                 code = item.get('symbol', '')
                 name = item.get('name', '')
                 issue_price = item.get('price', '')
@@ -1704,6 +1705,138 @@ def clear_listing_info_pushed_flag():
     """清除新上市交易股票信息推送标记"""
     if os.path.exists(Config.LISTING_PUSHED_FLAG):
         os.remove(Config.LISTING_PUSHED_FLAG)
+
+# ================== 新增：套利策略相关函数 ==================
+
+def get_arbitrage_status():
+    """获取当前套利ETF状态"""
+    if not os.path.exists(Config.ARBITRAGE_STATUS_FILE):
+        return None
+    
+    try:
+        with open(Config.ARBITRAGE_STATUS_FILE, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"读取套利状态文件失败: {str(e)}")
+        return None
+
+def update_arbitrage_status(etf_code, etf_name, buy_time, buy_price, target_price, stop_loss_price):
+    """更新套利ETF状态"""
+    status = {
+        "etf_code": etf_code,
+        "etf_name": etf_name,
+        "buy_time": buy_time,
+        "buy_price": buy_price,
+        "target_price": target_price,
+        "stop_loss_price": stop_loss_price
+    }
+    
+    try:
+        with open(Config.ARBITRAGE_STATUS_FILE, 'w') as f:
+            json.dump(status, f)
+        return True
+    except Exception as e:
+        logger.error(f"更新套利状态文件失败: {str(e)}")
+        return False
+
+def clear_arbitrage_status():
+    """清除套利ETF状态"""
+    try:
+        if os.path.exists(Config.ARBITRAGE_STATUS_FILE):
+            os.remove(Config.ARBITRAGE_STATUS_FILE)
+        return True
+    except Exception as e:
+        logger.error(f"清除套利状态文件失败: {str(e)}")
+        return False
+
+def is_holding_over_one_trading_day(buy_time_str):
+    """检查套利ETF持有时间是否超过一个交易日"""
+    try:
+        # 解析买入时间
+        buy_time = datetime.datetime.fromisoformat(buy_time_str)
+        
+        # 获取当前时间
+        current_time = get_beijing_time()
+        
+        # 计算两个时间之间的交易日数量
+        trading_days = 0
+        current_date = buy_time.date()
+        
+        while current_date < current_time.date():
+            # 检查是否为交易日（周一至周五）
+            if current_date.weekday() < 5:  # 周一=0，周日=6
+                trading_days += 1
+            current_date += datetime.timedelta(days=1)
+        
+        # 如果交易日数量 >= 1，则认为持有时间超过一个交易日
+        return trading_days >= 1
+    except Exception as e:
+        logger.error(f"检查持有时间失败: {str(e)}")
+        return False
+
+def scan_arbitrage_opportunities():
+    """扫描套利机会"""
+    logger.info("开始扫描套利机会")
+    
+    # 获取所有ETF列表
+    etf_list = get_all_etf_list()
+    if etf_list is None or etf_list.empty:
+        logger.error("未获取到ETF列表，跳过套利扫描")
+        return None
+    
+    # 扫描每只ETF
+    opportunities = []
+    for _, etf in etf_list.iterrows():
+        etf_code = etf['code']
+        etf_name = etf['name']
+        
+        # 获取ETF溢价率
+        premium_rate = calculate_premium_rate(etf_code)
+        
+        # 判断是否有套利机会
+        # 通常，溢价率过高（如>2%）或过低（如<-2%）可能存在套利机会
+        # 这里可以根据实际情况调整阈值
+        if premium_rate > 2.0 or premium_rate < -2.0:
+            # 获取ETF当前价格
+            etf_data = get_etf_data(etf_code, 'intraday')
+            if etf_data is None or etf_data.empty:
+                continue
+            etf_price = etf_data['close'].iloc[-1]
+            
+            # 估算ETF净值
+            nav = estimate_etf_nav(etf_code)
+            if nav is None or nav == 0:
+                continue
+            
+            # 计算止盈目标价格和止损价格
+            # 止盈目标：溢价率回归到0%附近
+            if premium_rate > 0:
+                # 溢价情况：ETF价格高于净值，预期价格下跌
+                target_price = nav * 1.005  # 回归到0.5%溢价
+                stop_loss_price = etf_price * 1.02  # 溢价扩大2%
+            else:
+                # 折价情况：ETF价格低于净值，预期价格上涨
+                target_price = nav * 0.995  # 回归到-0.5%折价
+                stop_loss_price = etf_price * 0.98  # 折价扩大2%
+            
+            opportunities.append({
+                "etf_code": etf_code,
+                "etf_name": etf_name,
+                "premium_rate": premium_rate,
+                "current_price": etf_price,
+                "nav": nav,
+                "target_price": target_price,
+                "stop_loss_price": stop_loss_price
+            })
+    
+    if opportunities:
+        logger.info(f"发现 {len(opportunities)} 个套利机会")
+        return opportunities
+    else:
+        logger.info("未发现套利机会")
+        return None
+
+# ================== 套利策略相关函数结束 ==================
 
 def retry_push():
     """在交易时间段内每30分钟检查是否需要重试推送"""
@@ -1849,6 +1982,74 @@ def cron_crawl_intraday():
             success = False
         time.sleep(1)  # 避免请求过快
     
+    # ================== 新增：套利扫描逻辑 ==================
+    # 检查当前是否持有套利ETF
+    arbitrage_status = get_arbitrage_status()
+    
+    if arbitrage_status:
+        # 检查持有时间是否超过一个交易日
+        if is_holding_over_one_trading_day(arbitrage_status['buy_time']):
+            # 推送获利了结消息
+            message = f"套利ETF {arbitrage_status['etf_code']}({arbitrage_status['etf_name']}) 在 {arbitrage_status['buy_time']} 买入，建议获利了结。"
+            send_wecom_message(message)
+            
+            # 清除套利状态
+            clear_arbitrage_status()
+        else:
+            # 检查是否达到止盈或止损条件
+            etf_code = arbitrage_status['etf_code']
+            etf_data = get_etf_data(etf_code, 'intraday')
+            if etf_data is not None and not etf_data.empty:
+                current_price = etf_data['close'].iloc[-1]
+                target_price = arbitrage_status['target_price']
+                stop_loss_price = arbitrage_status['stop_loss_price']
+                
+                # 检查是否达到止盈条件
+                if (current_price >= target_price and float(arbitrage_status['buy_price']) < target_price) or \
+                   (current_price <= target_price and float(arbitrage_status['buy_price']) > target_price):
+                    message = f"套利ETF {etf_code}({arbitrage_status['etf_name']}) 达到止盈目标价格 {target_price}，当前价格 {current_price}，建议获利了结。"
+                    send_wecom_message(message)
+                    clear_arbitrage_status()
+                
+                # 检查是否达到止损条件
+                elif (current_price <= stop_loss_price and float(arbitrage_status['buy_price']) < stop_loss_price) or \
+                     (current_price >= stop_loss_price and float(arbitrage_status['buy_price']) > stop_loss_price):
+                    message = f"套利ETF {etf_code}({arbitrage_status['etf_name']}) 达到止损价格 {stop_loss_price}，当前价格 {current_price}，建议止损离场。"
+                    send_wecom_message(message)
+                    clear_arbitrage_status()
+    else:
+        # 没有持有套利ETF，扫描新的套利机会
+        opportunities = scan_arbitrage_opportunities()
+        if opportunities:
+            # 选择第一个机会（可以修改为选择最佳机会）
+            opportunity = opportunities[0]
+            
+            # 推送套利机会
+            message = f"【套利机会】\n"
+            message += f"ETF代码：{opportunity['etf_code']}\n"
+            message += f"ETF名称：{opportunity['etf_name']}\n"
+            message += f"溢价率：{opportunity['premium_rate']:.2f}%\n"
+            message += f"当前价格：{opportunity['current_price']:.4f}\n"
+            message += f"净值：{opportunity['nav']:.4f}\n"
+            message += f"止盈目标：{opportunity['target_price']:.4f}\n"
+            message += f"止损价格：{opportunity['stop_loss_price']:.4f}\n"
+            message += "建议：立即买入，目标止盈，严格止损。"
+            
+            send_wecom_message(message)
+            
+            # 更新套利状态
+            current_time = get_beijing_time().isoformat()
+            update_arbitrage_status(
+                opportunity['etf_code'],
+                opportunity['etf_name'],
+                current_time,
+                opportunity['current_price'],
+                opportunity['target_price'],
+                opportunity['stop_loss_price']
+            )
+    
+    # ================== 套利扫描逻辑结束 ==================
+    
     response = {"status": "success" if success else "error"}
     return jsonify(response) if has_app_context() else response
 
@@ -1903,10 +2104,40 @@ def cron_arbitrage_scan():
     logger.info("套利扫描任务触发")
     
     # 实际实现中会调用套利扫描函数
-    # 例如：from arbitrage import scan_arbitrage_opportunities
-    # success = scan_arbitrage_opportunities()
+    opportunities = scan_arbitrage_opportunities()
     
-    response = {"status": "success", "message": "Arbitrage scan triggered"}
+    if opportunities:
+        # 选择第一个机会
+        opportunity = opportunities[0]
+        
+        # 推送套利机会
+        message = f"【套利机会】\n"
+        message += f"ETF代码：{opportunity['etf_code']}\n"
+        message += f"ETF名称：{opportunity['etf_name']}\n"
+        message += f"溢价率：{opportunity['premium_rate']:.2f}%\n"
+        message += f"当前价格：{opportunity['current_price']:.4f}\n"
+        message += f"净值：{opportunity['nav']:.4f}\n"
+        message += f"止盈目标：{opportunity['target_price']:.4f}\n"
+        message += f"止损价格：{opportunity['stop_loss_price']:.4f}\n"
+        message += "建议：立即买入，目标止盈，严格止损。"
+        
+        send_wecom_message(message)
+        
+        # 更新套利状态
+        current_time = get_beijing_time().isoformat()
+        update_arbitrage_status(
+            opportunity['etf_code'],
+            opportunity['etf_name'],
+            current_time,
+            opportunity['current_price'],
+            opportunity['target_price'],
+            opportunity['stop_loss_price']
+        )
+        
+        response = {"status": "success", "message": "Arbitrage opportunity found"}
+    else:
+        response = {"status": "success", "message": "No arbitrage opportunity found"}
+    
     return jsonify(response) if has_app_context() else response
 
 @app.route('/cron/cleanup', methods=['GET', 'POST'])
@@ -2199,6 +2430,51 @@ def test_new_stock_listings():
     response = {"status": "success", "message": "Test new stock listings sent"}
     return jsonify(response) if has_app_context() else response
 
+# ========== 新增：测试套利扫描 ==========
+
+@app.route('/test/arbitrage-scan', methods=['GET'])
+def test_arbitrage_scan():
+    """T09: 测试套利扫描"""
+    test = _is_test_request()
+    
+    # 扫描套利机会
+    opportunities = scan_arbitrage_opportunities()
+    
+    if opportunities:
+        # 选择第一个机会
+        opportunity = opportunities[0]
+        
+        # 推送套利机会
+        message = f"【测试套利机会】\n"
+        message += f"ETF代码：{opportunity['etf_code']}\n"
+        message += f"ETF名称：{opportunity['etf_name']}\n"
+        message += f"溢价率：{opportunity['premium_rate']:.2f}%\n"
+        message += f"当前价格：{opportunity['current_price']:.4f}\n"
+        message += f"净值：{opportunity['nav']:.4f}\n"
+        message += f"止盈目标：{opportunity['target_price']:.4f}\n"
+        message += f"止损价格：{opportunity['stop_loss_price']:.4f}\n"
+        message += "建议：立即买入，目标止盈，严格止损。"
+        
+        send_wecom_message(_format_message(message, test=test))
+        
+        # 更新套利状态（仅测试模式）
+        if test:
+            current_time = get_beijing_time().isoformat()
+            update_arbitrage_status(
+                opportunity['etf_code'],
+                opportunity['etf_name'],
+                current_time,
+                opportunity['current_price'],
+                opportunity['target_price'],
+                opportunity['stop_loss_price']
+            )
+        
+        response = {"status": "success", "message": "Arbitrage opportunity found"}
+    else:
+        response = {"status": "success", "message": "No arbitrage opportunity found"}
+    
+    return jsonify(response) if has_app_context() else response
+
 # ========== 辅助函数 ==========
 
 def cleanup_directory(directory, days_to_keep=None):
@@ -2384,6 +2660,48 @@ def run_task(task):
             logger.info("测试重置仓位完成")
             return {"status": "success", "message": "All positions reset"}
         
+        elif task == 'test_arbitrage':
+            # T09: 测试套利扫描
+            logger.info("执行测试套利扫描任务")
+            
+            # 扫描套利机会
+            opportunities = scan_arbitrage_opportunities()
+            
+            if opportunities:
+                # 选择第一个机会
+                opportunity = opportunities[0]
+                
+                # 推送套利机会
+                message = f"【测试套利机会】\n"
+                message += f"ETF代码：{opportunity['etf_code']}\n"
+                message += f"ETF名称：{opportunity['etf_name']}\n"
+                message += f"溢价率：{opportunity['premium_rate']:.2f}%\n"
+                message += f"当前价格：{opportunity['current_price']:.4f}\n"
+                message += f"净值：{opportunity['nav']:.4f}\n"
+                message += f"止盈目标：{opportunity['target_price']:.4f}\n"
+                message += f"止损价格：{opportunity['stop_loss_price']:.4f}\n"
+                message += "建议：立即买入，目标止盈，严格止损。"
+                
+                success = send_wecom_message(message)
+                
+                # 更新套利状态
+                if success:
+                    current_time = get_beijing_time().isoformat()
+                    update_arbitrage_status(
+                        opportunity['etf_code'],
+                        opportunity['etf_name'],
+                        current_time,
+                        opportunity['current_price'],
+                        opportunity['target_price'],
+                        opportunity['stop_loss_price']
+                    )
+                
+                logger.info("测试套利扫描成功")
+                return {"status": "success", "message": "Arbitrage opportunity found"}
+            else:
+                logger.info("未发现套利机会")
+                return {"status": "success", "message": "No arbitrage opportunity found"}
+        
         elif task == 'run_new_stock_info':
             # 每日 9:35 新股信息推送
             return cron_new_stock_info()
@@ -2403,6 +2721,10 @@ def run_task(task):
         elif task == 'crawl_daily':
             # 每日 15:30 爬取日线数据
             return cron_crawl_daily()
+        
+        elif task == 'crawl_intraday':
+            # 盘中数据爬取（每30分钟）
+            return cron_crawl_intraday()
         
         elif task == 'cleanup':
             # 每天 00:00 清理旧数据
@@ -2425,7 +2747,7 @@ if __name__ == "__main__":
     # 用于GitHub Actions执行任务
     task = os.getenv('TASK', 'run_new_stock_info')
     
-    if task.startswith('test_') or task in ['run_new_stock_info', 'push_strategy', 'update_stock_pool', 'crawl_daily', 'cleanup', 'retry_push']:
+    if task.startswith('test_') or task in ['run_new_stock_info', 'push_strategy', 'update_stock_pool', 'crawl_daily', 'cleanup', 'retry_push', 'crawl_intraday']:
         # 执行任务
         result = run_task(task)
         logger.info(f"任务执行结果: {result}")
