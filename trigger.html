@@ -183,14 +183,14 @@
       };
     }
     
-    function getCronSecret() {
+    function getTriHtmToken() {
       const urlParams = new URLSearchParams(window.location.search);
-      return urlParams.get('secret');
+      return urlParams.get('TRI_HTM_TOKEN');
     }
     
-    function validateCronSecret(secret) {
-      // 验证secret格式（简单验证：至少10个字符）
-      return secret && secret.length >= 10;
+    function validateTriHtmToken(token) {
+      // 验证token格式（简单验证：40字符长度）
+      return token && token.length === 40;
     }
     
     function triggerTest(task) {
@@ -211,16 +211,16 @@
         return;
       }
       
-      // 3. 获取 CRON_SECRET
-      const cronSecret = getCronSecret();
+      // 3. 获取 TRI_HTM_TOKEN
+      const triHtmToken = getTriHtmToken();
       
-      if (!cronSecret) {
-        updateStatus(task, 'error', 'error', '缺少安全密钥，请在URL后添加?secret=YOUR_SECRET');
+      if (!triHtmToken) {
+        updateStatus(task, 'error', 'error', '缺少安全密钥，请在URL后添加?TRI_HTM_TOKEN=YOUR_TOKEN');
         return;
       }
       
-      if (!validateCronSecret(cronSecret)) {
-        updateStatus(task, 'error', 'error', '安全密钥格式无效，请检查是否正确输入');
+      if (!validateTriHtmToken(triHtmToken)) {
+        updateStatus(task, 'error', 'error', '安全密钥格式无效，请检查是否正确输入（应为40字符）');
         return;
       }
       
@@ -241,7 +241,7 @@
 - 页面 URL: ${window.location.href}
 - Hostname: ${window.location.hostname}
 - 路径: ${window.location.pathname}
-- Secret 长度: ${cronSecret.length} 字符`;
+- Token 长度: ${triHtmToken.length} 字符`;
 
       // 6. 显示调试信息
       updateStatus(task, 'loading', 'loading', '触发中... (查看下方调试信息)', debugInfo);
@@ -251,7 +251,7 @@
         method: 'POST',
         headers: {
           'Accept': 'application/vnd.github+json',
-          'Authorization': `Bearer ${cronSecret}`,
+          'Authorization': `Bearer ${triHtmToken}`,
           'X-GitHub-Api-Version': '2022-11-28'
         },
         body: JSON.stringify(requestData)
@@ -283,6 +283,7 @@
 - 状态: ${result.status} ${result.statusText}
 - 响应内容: ${result.json ? JSON.stringify(result.json, null, 2) : result.text}`;
         
+        // 204 表示成功触发
         if (result.status === 204) {
           updateStatus(task, 'success', 'success', '触发成功！请等待1-2分钟查看结果', debugInfo);
         } else {
@@ -312,33 +313,33 @@
     document.addEventListener('DOMContentLoaded', function() {
       // 检查是否在 GitHub Pages 上
       if (window.location.hostname.endsWith('.github.io')) {
-        // 检查是否提供了 CRON_SECRET
-        const cronSecret = getCronSecret();
+        // 检查是否提供了 TRI_HTM_TOKEN
+        const triHtmToken = getTriHtmToken();
         const tokenStatus = document.createElement('div');
         tokenStatus.className = 'status info';
         
-        if (!cronSecret) {
-          tokenStatus.textContent = '⚠️ 缺少安全密钥 - 请在URL后添加?secret=YOUR_SECRET';
-        } else if (!validateCronSecret(cronSecret)) {
-          tokenStatus.textContent = '⚠️ 安全密钥格式无效 - 请检查是否正确输入（应至少10个字符）';
+        if (!triHtmToken) {
+          tokenStatus.textContent = '⚠️ 缺少安全密钥 - 请在URL后添加?TRI_HTM_TOKEN=YOUR_TOKEN';
+        } else if (!validateTriHtmToken(triHtmToken)) {
+          tokenStatus.textContent = '⚠️ 安全密钥格式无效 - 请检查是否正确输入（应为40字符）';
           tokenStatus.className = 'status error';
         } else {
-          tokenStatus.textContent = `✓ 安全密钥已提供 (长度: ${cronSecret.length} 字符)`;
+          tokenStatus.textContent = `✓ 安全密钥已提供 (长度: ${triHtmToken.length} 字符)`;
         }
         
         document.querySelector('.container').insertBefore(tokenStatus, document.querySelector('.container').firstChild);
+        
+        // 添加URL格式提示
+        const urlHint = document.createElement('div');
+        urlHint.className = 'status info';
+        urlHint.innerHTML = '使用提示: <br>访问此页面时请添加安全密钥: <br><code>https://karmyshunde-sudo.github.io/etf-strategy/trigger.html?TRI_HTM_TOKEN=YOUR_40_CHAR_TOKEN</code>';
+        document.querySelector('.container').insertBefore(urlHint, document.querySelector('.container').firstChild);
       } else {
         const warning = document.createElement('div');
         warning.className = 'status info';
         warning.textContent = '⚠️ 页面应在GitHub Pages上运行才能触发任务';
         document.querySelector('.container').insertBefore(warning, document.querySelector('.container').firstChild);
       }
-      
-      // 添加URL格式提示
-      const urlHint = document.createElement('div');
-      urlHint.className = 'status info';
-      urlHint.innerHTML = '使用提示: <br>访问此页面时请添加安全密钥: <br><code>https://karmyshunde-sudo.github.io/etf-strategy/trigger.html?secret=TRI_HTM_TOKEN_VALUE</code>';
-      document.querySelector('.container').insertBefore(urlHint, document.querySelector('.container').firstChild);
     });
   </script>
 </body>
