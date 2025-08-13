@@ -165,7 +165,7 @@ import shutil
 import requests
 import akshare as ak
 import baostock as bs
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, has_app_context
 from config import Config
 from logger import get_logger
 from bs4 import BeautifulSoup
@@ -296,7 +296,7 @@ def calculate_liquidity_score(etf_code, etf_data):
     计算流动性评分（20%权重）
     参数:
         etf_code: ETF代码
-        etf_data: ETF日线数据
+        etf_ ETF日线数据
     返回:
         float: 流动性评分（0-100分）
     """
@@ -318,7 +318,7 @@ def calculate_risk_score(etf_code, etf_data):
     计算风险控制评分（25%权重）
     参数:
         etf_code: ETF代码
-        etf_data: ETF日线数据
+        etf_ ETF日线数据
     返回:
         float: 风险评分（0-100分）
     """
@@ -348,7 +348,7 @@ def calculate_return_score(etf_code, etf_data):
     计算收益能力评分（25%权重）
     参数:
         etf_code: ETF代码
-        etf_data: ETF日线数据
+        etf_ ETF日线数据
     返回:
         float: 收益评分（0-100分）
     """
@@ -923,7 +923,7 @@ def save_to_cache(etf_code, data, data_type='daily'):
     将ETF数据保存到缓存
     参数:
         etf_code: ETF代码
-        data: DataFrame数据
+         DataFrame数据
         data_type: 'daily'或'intraday'
     """
     cache_path = get_cache_path(etf_code, data_type)
@@ -1047,7 +1047,7 @@ def crawl_sina_finance(etf_code):
         
         # 解析JSON响应
         data = response.json()
-        if not data:
+        if not 
             return None
         
         # 转换为DataFrame
@@ -1182,7 +1182,7 @@ def get_all_etf_list():
         response.raise_for_status()
         data = response.json()
         
-        if data:
+        if 
             etf_list = pd.DataFrame(data)
             etf_list = etf_list[['symbol', 'name']]
             etf_list.columns = ['code', 'name']
@@ -1346,7 +1346,7 @@ def get_new_stock_subscriptions():
         data = response.json()
         
         new_stocks = []
-        for item in data:
+        for item in 
             code = item.get('symbol', '')
             name = item.get('name', '')
             issue_price = item.get('price', '')
@@ -1428,7 +1428,7 @@ def get_new_stock_listings():
         data = response.json()
         
         new_listings = []
-        for item in data:
+        for item in 
             code = item.get('symbol', '')
             name = item.get('name', '')
             issue_price = item.get('price', '')
@@ -1510,7 +1510,7 @@ def get_test_new_stock_subscriptions():
             data = response.json()
             
             new_stocks = []
-            for item in data:
+            for item in 
                 code = item.get('symbol', '')
                 name = item.get('name', '')
                 issue_price = item.get('price', '')
@@ -1592,7 +1592,7 @@ def get_test_new_stock_listings():
             data = response.json()
             
             new_listings = []
-            for item in data:
+            for item in 
                 code = item.get('symbol', '')
                 name = item.get('name', '')
                 issue_price = item.get('price', '')
@@ -1623,7 +1623,7 @@ def format_new_stock_subscriptions_message(new_stocks):
     返回:
         str: 格式化后的消息
     """
-    if new_stocks.empty:
+    if new_stocks is None or new_stocks.empty:
         return "今天没有新股、新债、新债券可认购"
     
     # 仅包含新股基本信息，不涉及任何ETF评分
@@ -1654,8 +1654,8 @@ def format_new_stock_listings_message(new_listings):
     返回:
         str: 格式化后的消息
     """
-    if new_listings.empty:
-        return "今天没有新上市股票、可转债、债券"
+    if new_listings is None or new_listings.empty:
+        return "今天没有新上市股票、可转债、债券可供交易"
     
     # 仅包含新上市交易股票基本信息
     message = "【近期新上市交易股票】\n"
@@ -1738,7 +1738,7 @@ def push_new_stock_info(test=False):
     """
     new_stocks = get_new_stock_subscriptions()
     
-    if new_stocks.empty:
+    if new_stocks is None or new_stocks.empty:
         message = "今天没有新股、新债、新债券可认购"
     else:
         message = format_new_stock_subscriptions_message(new_stocks)
@@ -1764,7 +1764,7 @@ def push_listing_info(test=False):
     """
     new_listings = get_new_stock_listings()
     
-    if new_listings.empty:
+    if new_listings is None or new_listings.empty:
         message = "今天没有新上市股票、可转债、债券可供交易"
     else:
         message = format_new_stock_listings_message(new_listings)
@@ -1785,11 +1785,12 @@ def push_listing_info(test=False):
 @app.route('/health')
 def health_check():
     """健康检查"""
-    return jsonify({
+    response = {
         "status": "healthy",
         "timestamp": get_beijing_time().isoformat(),
         "environment": "production"
-    })
+    }
+    return jsonify(response) if has_app_context() else response
 
 @app.route('/cron/crawl_daily', methods=['GET', 'POST'])
 def cron_crawl_daily():
@@ -1799,13 +1800,15 @@ def cron_crawl_daily():
     # 检查是否为交易日
     if not is_trading_day():
         logger.info("今天不是交易日，跳过爬取")
-        return jsonify({"status": "skipped", "message": "Not trading day"})
+        response = {"status": "skipped", "message": "Not trading day"}
+        return jsonify(response) if has_app_context() else response
     
     # 获取所有ETF列表
     etf_list = get_all_etf_list()
     if etf_list is None or etf_list.empty:
         logger.error("未获取到ETF列表，跳过爬取")
-        return jsonify({"status": "skipped", "message": "No ETF list available"})
+        response = {"status": "skipped", "message": "No ETF list available"}
+        return jsonify(response) if has_app_context() else response
     
     # 爬取每只ETF的日线数据
     success = True
@@ -1816,7 +1819,8 @@ def cron_crawl_daily():
             success = False
         time.sleep(1)  # 避免请求过快
     
-    return jsonify({"status": "success" if success else "error"})
+    response = {"status": "success" if success else "error"}
+    return jsonify(response) if has_app_context() else response
 
 @app.route('/cron/crawl_intraday', methods=['GET', 'POST'])
 def cron_crawl_intraday():
@@ -1826,13 +1830,15 @@ def cron_crawl_intraday():
     # 检查是否为交易日
     if not is_trading_day():
         logger.info("今天不是交易日，跳过爬取")
-        return jsonify({"status": "skipped", "message": "Not trading day"})
+        response = {"status": "skipped", "message": "Not trading day"}
+        return jsonify(response) if has_app_context() else response
     
     # 获取所有ETF列表
     etf_list = get_all_etf_list()
     if etf_list is None or etf_list.empty:
         logger.error("未获取到ETF列表，跳过爬取")
-        return jsonify({"status": "skipped", "message": "No ETF list available"})
+        response = {"status": "skipped", "message": "No ETF list available"}
+        return jsonify(response) if has_app_context() else response
     
     # 爬取每只ETF的盘中数据
     success = True
@@ -1843,7 +1849,8 @@ def cron_crawl_intraday():
             success = False
         time.sleep(1)  # 避免请求过快
     
-    return jsonify({"status": "success" if success else "error"})
+    response = {"status": "success" if success else "error"}
+    return jsonify(response) if has_app_context() else response
 
 @app.route('/cron/update_stock_pool', methods=['GET', 'POST'])
 def cron_update_stock_pool():
@@ -1853,21 +1860,25 @@ def cron_update_stock_pool():
     # 检查是否为周五
     if datetime.datetime.now().weekday() != 4:  # 周五
         logger.info("今天不是周五，跳过股票池更新")
-        return jsonify({"status": "skipped", "message": "Not Friday"})
+        response = {"status": "skipped", "message": "Not Friday"}
+        return jsonify(response) if has_app_context() else response
     
     # 检查是否在16:00之后
     current_time = datetime.datetime.now().time()
     if current_time < datetime.time(16, 0):
         logger.info("时间未到16:00，跳过股票池更新")
-        return jsonify({"status": "skipped", "message": "Before 16:00"})
+        response = {"status": "skipped", "message": "Before 16:00"}
+        return jsonify(response) if has_app_context() else response
     
     # 调用核心股票池更新函数
     result = update_stock_pool()
     
     if result is None:
-        return jsonify({"status": "skipped", "message": "No valid ETFs found"})
+        response = {"status": "skipped", "message": "No valid ETFs found"}
+        return jsonify(response) if has_app_context() else response
     
-    return jsonify({"status": "success", "message": "Stock pool updated"})
+    response = {"status": "success", "message": "Stock pool updated"}
+    return jsonify(response) if has_app_context() else response
 
 @app.route('/cron/push_strategy', methods=['GET', 'POST'])
 def cron_push_strategy():
@@ -1877,12 +1888,14 @@ def cron_push_strategy():
     # 检查是否为交易日
     if not is_trading_day():
         logger.info("今天不是交易日，跳过策略推送")
-        return jsonify({"status": "skipped", "message": "Not trading day"})
+        response = {"status": "skipped", "message": "Not trading day"}
+        return jsonify(response) if has_app_context() else response
     
     # 调用核心策略计算函数
     success = push_strategy_results()
     
-    return jsonify({"status": "success" if success else "error"})
+    response = {"status": "success" if success else "error"}
+    return jsonify(response) if has_app_context() else response
 
 @app.route('/cron/arbitrage_scan', methods=['GET', 'POST'])
 def cron_arbitrage_scan():
@@ -1893,7 +1906,8 @@ def cron_arbitrage_scan():
     # 例如：from arbitrage import scan_arbitrage_opportunities
     # success = scan_arbitrage_opportunities()
     
-    return jsonify({"status": "success", "message": "Arbitrage scan triggered"})
+    response = {"status": "success", "message": "Arbitrage scan triggered"}
+    return jsonify(response) if has_app_context() else response
 
 @app.route('/cron/cleanup', methods=['GET', 'POST'])
 def cron_cleanup():
@@ -1903,7 +1917,8 @@ def cron_cleanup():
     # 实际实现中会调用数据清理函数
     cleanup_old_data()
     
-    return jsonify({"status": "success", "message": "Old data cleaned"})
+    response = {"status": "success", "message": "Old data cleaned"}
+    return jsonify(response) if has_app_context() else response
 
 @app.route('/cron/new-stock-info', methods=['GET', 'POST'])
 def cron_new_stock_info():
@@ -1913,12 +1928,14 @@ def cron_new_stock_info():
     # 检查是否为交易日
     if not is_trading_day():
         logger.info("今天不是交易日，跳过新股信息推送")
-        return jsonify({"status": "skipped", "message": "Not trading day"})
+        response = {"status": "skipped", "message": "Not trading day"}
+        return jsonify(response) if has_app_context() else response
     
     # 检查是否已经推送过
     if is_new_stock_info_pushed():
         logger.info("新股信息已推送，跳过")
-        return jsonify({"status": "skipped", "message": "Already pushed"})
+        response = {"status": "skipped", "message": "Already pushed"}
+        return jsonify(response) if has_app_context() else response
     
     # 推送新股申购信息
     success_subscriptions = push_new_stock_info()
@@ -1934,14 +1951,17 @@ def cron_new_stock_info():
         if success_subscriptions and success_listings:
             mark_new_stock_info_pushed()
             mark_listing_info_pushed()
-            return jsonify({"status": "success", "message": "New stock info and listings pushed"})
+            response = {"status": "success", "message": "New stock info and listings pushed"}
+            return jsonify(response) if has_app_context() else response
         elif success_subscriptions:
             logger.warning("新上市交易股票信息推送失败，但新股申购信息已成功推送")
             mark_new_stock_info_pushed()
-            return jsonify({"status": "partial_success", "message": "New stock subscriptions pushed, listings failed"})
+            response = {"status": "partial_success", "message": "New stock subscriptions pushed, listings failed"}
+            return jsonify(response) if has_app_context() else response
     else:
         logger.error("新股申购信息推送失败")
-        return jsonify({"status": "error", "message": "Failed to push new stock subscriptions"})
+        response = {"status": "error", "message": "Failed to push new stock subscriptions"}
+        return jsonify(response) if has_app_context() else response
 
 @app.route('/cron/retry-push', methods=['GET', 'POST'])
 def cron_retry_push():
@@ -1951,12 +1971,14 @@ def cron_retry_push():
     # 检查是否为交易日
     if not is_trading_day():
         logger.info("今天不是交易日，跳过重试推送")
-        return jsonify({"status": "skipped", "message": "Not trading day"})
+        response = {"status": "skipped", "message": "Not trading day"}
+        return jsonify(response) if has_app_context() else response
     
     # 执行重试
     retry_push()
     
-    return jsonify({"status": "success", "message": "Retry push completed"})
+    response = {"status": "success", "message": "Retry push completed"}
+    return jsonify(response) if has_app_context() else response
 
 # ========== 测试端点 ==========
 
@@ -1982,10 +2004,12 @@ def test_message():
     
     if success:
         logger.info("测试消息发送成功")
-        return jsonify({"status": "success", "message": "Test message sent"})
+        response = {"status": "success", "message": "Test message sent"}
+        return jsonify(response) if has_app_context() else response
     else:
         logger.error("测试消息发送失败")
-        return jsonify({"status": "error", "message": "Failed to send test message"})
+        response = {"status": "error", "message": "Failed to send test message"}
+        return jsonify(response) if has_app_context() else response
 
 @app.route('/test/strategy', methods=['GET'])
 def test_strategy():
@@ -1994,7 +2018,8 @@ def test_strategy():
     
     stock_pool = get_current_stock_pool()
     if stock_pool is None or stock_pool.empty:
-        return jsonify({"status": "error", "message": "No stock pool available"})
+        response = {"status": "error", "message": "No stock pool available"}
+        return jsonify(response) if has_app_context() else response
     
     results = []
     for _, etf in stock_pool.iterrows():
@@ -2009,7 +2034,8 @@ def test_strategy():
             'rationale': signal['rationale']
         })
     
-    return jsonify({"status": "success", "results": results})
+    response = {"status": "success", "results": results}
+    return jsonify(response) if has_app_context() else response
 
 @app.route('/test/trade-log', methods=['GET'])
 def test_trade_log():
@@ -2020,7 +2046,8 @@ def test_trade_log():
         # 获取所有交易日志文件
         log_files = sorted([f for f in os.listdir(Config.TRADE_LOG_DIR) if f.startswith('trade_log_')])
         if not log_files:
-            return jsonify({"status": "error", "message": "No trade logs found"})
+            response = {"status": "error", "message": "No trade logs found"}
+            return jsonify(response) if has_app_context() else response
         
         # 合并所有交易日志
         all_logs = []
@@ -2029,15 +2056,17 @@ def test_trade_log():
             log_df = pd.read_csv(log_path)
             all_logs.extend(log_df.to_dict(orient='records'))
         
-        return jsonify({
+        response = {
             "status": "success", 
             "trade_log": all_logs,
             "total_records": len(all_logs),
             "file_count": len(log_files)
-        })
+        }
+        return jsonify(response) if has_app_context() else response
     except Exception as e:
         logger.error(f"获取交易流水失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)})
+        response = {"status": "error", "message": str(e)}
+        return jsonify(response) if has_app_context() else response
 
 @app.route('/test/stock-pool', methods=['GET'])
 def test_stock_pool():
@@ -2046,14 +2075,16 @@ def test_stock_pool():
     
     stock_pool = get_current_stock_pool()
     if stock_pool is None:
-        return jsonify({"status": "error", "message": "No stock pool available"})
+        response = {"status": "error", "message": "No stock pool available"}
+        return jsonify(response) if has_app_context() else response
     
     # 格式化消息
     message = _format_stock_pool_message(stock_pool, test=test)
     
     # 发送消息
     send_wecom_message(_format_message(message, test=test))
-    return jsonify({"status": "success", "message": "Stock pool pushed"})
+    response = {"status": "success", "message": "Stock pool pushed"}
+    return jsonify(response) if has_app_context() else response
 
 @app.route('/test/execute', methods=['GET'])
 def test_execute():
@@ -2063,7 +2094,8 @@ def test_execute():
     # 调用核心策略计算函数
     success = push_strategy_results(test=test)
     
-    return jsonify({"status": "success" if success else "error"})
+    response = {"status": "success" if success else "error"}
+    return jsonify(response) if has_app_context() else response
 
 @app.route('/test/reset', methods=['GET'])
 def test_reset():
@@ -2072,7 +2104,8 @@ def test_reset():
     
     stock_pool = get_current_stock_pool()
     if stock_pool is None or stock_pool.empty:
-        return jsonify({"status": "error", "message": "No stock pool available"})
+        response = {"status": "error", "message": "No stock pool available"}
+        return jsonify(response) if has_app_context() else response
     
     beijing_time = get_beijing_time().strftime('%Y-%m-%d %H:%M')
     for _, etf in stock_pool.iterrows():
@@ -2100,7 +2133,8 @@ def test_reset():
         # 间隔1分钟
         time.sleep(60)
     
-    return jsonify({"status": "success", "message": "All positions reset"})
+    response = {"status": "success", "message": "All positions reset"}
+    return jsonify(response) if has_app_context() else response
 
 @app.route('/test/new-stock', methods=['GET'])
 def test_new_stock():
@@ -2111,7 +2145,7 @@ def test_new_stock():
     new_stocks = get_test_new_stock_subscriptions()
     
     # 检查是否获取到新股数据
-    if new_stocks.empty:
+    if new_stocks is None or new_stocks.empty:
         message = "近7天没有新股、新债、新债券可认购"
     else:
         message = format_new_stock_subscriptions_message(new_stocks)
@@ -2131,7 +2165,7 @@ def test_new_stock():
         new_listings = get_test_new_stock_listings()
         
         # 推送新上市交易股票信息
-        if not new_listings.empty:
+        if not new_listings is None and not new_listings.empty:
             message = format_new_stock_listings_message(new_listings)
             if test:
                 message = "【测试消息】\n" + message
@@ -2140,10 +2174,12 @@ def test_new_stock():
     # 检查推送结果
     if success:
         logger.info("测试消息推送成功")
-        return jsonify({"status": "success", "message": "Test new stocks sent"})
+        response = {"status": "success", "message": "Test new stocks sent"}
+        return jsonify(response) if has_app_context() else response
     else:
         logger.error("测试消息推送失败")
-        return jsonify({"status": "error", "message": "Failed to send test new stocks"})
+        response = {"status": "error", "message": "Failed to send test new stocks"}
+        return jsonify(response) if has_app_context() else response
 
 @app.route('/test/new-stock-listings', methods=['GET'])
 def test_new_stock_listings():
@@ -2154,13 +2190,14 @@ def test_new_stock_listings():
     new_listings = get_test_new_stock_listings()
     
     # 推送新上市交易股票信息
-    if not new_listings.empty:
+    if not new_listings is None and not new_listings.empty:
         message = format_new_stock_listings_message(new_listings)
         if test:
             message = "【测试消息】\n" + message
         send_wecom_message(message)
     
-    return jsonify({"status": "success", "message": "Test new stock listings sent"})
+    response = {"status": "success", "message": "Test new stock listings sent"}
+    return jsonify(response) if has_app_context() else response
 
 # ========== 辅助函数 ==========
 
@@ -2242,7 +2279,7 @@ def run_task(task):
             new_stocks = get_test_new_stock_subscriptions()
             
             # 检查是否获取到新股数据
-            if new_stocks.empty:
+            if new_stocks is None or new_stocks.empty:
                 message = "近7天没有新股、新债、新债券可认购"
             else:
                 message = format_new_stock_subscriptions_message(new_stocks)
@@ -2262,7 +2299,7 @@ def run_task(task):
                 new_listings = get_test_new_stock_listings()
                 
                 # 推送新上市交易股票信息
-                if not new_listings.empty:
+                if not new_listings is None and not new_listings.empty:
                     message = "【测试消息】\n" + format_new_stock_listings_message(new_listings)
                     send_wecom_message(message)
             
