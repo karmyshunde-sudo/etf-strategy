@@ -95,7 +95,7 @@
   </style>
 </head>
 <body>
-  <h1>根目录下的ETF 策略测试鱼盆触发器</h1>
+  <h1>ETF 策略测试鱼盆触发器</h1>
   <p>点击以下按钮手动触发测试（无需等待交易日）</p>
   
   <div class="container">
@@ -188,6 +188,11 @@
       return urlParams.get('secret');
     }
     
+    function validateCronSecret(secret) {
+      // 验证secret格式（简单验证：至少10个字符）
+      return secret && secret.length >= 10;
+    }
+    
     function triggerTest(task) {
       updateStatus(task, 'loading', 'loading', '触发中...');
       
@@ -214,10 +219,18 @@
         return;
       }
       
+      if (!validateCronSecret(cronSecret)) {
+        updateStatus(task, 'error', 'error', '安全密钥格式无效，请检查是否正确输入');
+        return;
+      }
+      
       // 4. 构建请求 URL 和参数
-      const apiUrl = `https://${owner}.github.io/${repo}/api/trigger`;
+      const apiUrl = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/schedule/dispatches`;
       const requestData = {
-        task: task
+        ref: 'main',
+        inputs: {
+          task: task
+        }
       };
       
       // 5. 记录调试信息
@@ -227,8 +240,9 @@
 - 请求参数: ${JSON.stringify(requestData, null, 2)}
 - 页面 URL: ${window.location.href}
 - Hostname: ${window.location.hostname}
-- 路径: ${window.location.pathname}`;
-      
+- 路径: ${window.location.pathname}
+- Secret 长度: ${cronSecret.length} 字符`;
+
       // 6. 显示调试信息
       updateStatus(task, 'loading', 'loading', '触发中... (查看下方调试信息)', debugInfo);
       
@@ -236,8 +250,9 @@
       fetch(apiUrl, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'X-Cron-Secret': cronSecret
+          'Accept': 'application/vnd.github+json',
+          'Authorization': `Bearer ${cronSecret}`,
+          'X-GitHub-Api-Version': '2022-11-28'
         },
         body: JSON.stringify(requestData)
       })
@@ -267,14 +282,16 @@
         const debugInfo = `API 响应:
 - 状态: ${result.status} ${result.statusText}
 - 响应内容: ${result.json ? JSON.stringify(result.json, null, 2) : result.text}`;
-
-        if (result.status === 200 && result.json && result.json.status === 'success') {
+        
+        if (result.status === 204) {
           updateStatus(task, 'success', 'success', '触发成功！请等待1-2分钟查看结果', debugInfo);
         } else {
           let errorMessage = `触发失败: ${result.statusText}`;
           
           if (result.json && result.json.message) {
             errorMessage += `\n详细错误: ${result.json.message}`;
+          } else if (result.text) {
+            errorMessage += `\n响应内容: ${result.text.substring(0, 200)}`;
           }
           
           updateStatus(task, 'error', 'error', errorMessage, debugInfo);
@@ -302,14 +319,26 @@
         
         if (!cronSecret) {
           tokenStatus.textContent = '⚠️ 缺少安全密钥 - 请在URL后添加?secret=YOUR_SECRET';
+        } else if (!validateCronSecret(cronSecret)) {
+          tokenStatus.textContent = '⚠️ 安全密钥格式无效 - 请检查是否正确输入（应至少10个字符）';
+          tokenStatus.className = 'status error';
         } else {
-          tokenStatus.textContent = '✓ 安全密钥已提供 (长度: ' + cronSecret.length + ' 字符)';
+          tokenStatus.textContent = `✓ 安全密钥已提供 (长度: ${cronSecret.length} 字符)`;
         }
         
         document.querySelector('.container').insertBefore(tokenStatus, document.querySelector('.container').firstChild);
       } else {
-        updateStatus('all', 'info', 'info', '页面应在GitHub Pages上运行才能触发任务');
+        const warning = document.createElement('div');
+        warning.className = 'status info';
+        warning.textContent = '⚠️ 页面应在GitHub Pages上运行才能触发任务';
+        document.querySelector('.container').insertBefore(warning, document.querySelector('.container').firstChild);
       }
+      
+      // 添加URL格式提示
+      const urlHint = document.createElement('div');
+      urlHint.className = 'status info';
+      urlHint.innerHTML = '使用提示: <br>访问此页面时请添加安全密钥: <br><code>https://karmyshunde-sudo.github.io/etf-strategy/trigger.html?secret=YOUR_SECRET</code>';
+      document.querySelector('.container').insertBefore(urlHint, document.querySelector('.container').firstChild);
     });
   </script>
 </body>
