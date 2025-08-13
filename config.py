@@ -12,10 +12,12 @@
    - TRADE_LOG_DIR: 交易流水存储目录
    - ERROR_LOG_DIR: 错误日志存储目录
    - NEW_STOCK_DATA_DIR: 新股数据存储目录
+   - ARBITRAGE_DIR: 套利数据存储目录
 
 2. 新股信息标记文件：
    - NEW_STOCK_PUSHED_FLAG: 标记新股信息是否已推送
    - LISTING_PUSHED_FLAG: 标记新上市交易股票信息是否已推送
+   - ARBITRAGE_STATUS_FILE: 套利状态文件
 
 3. 企业微信配置：
    - WECOM_WEBHOOK: 企业微信机器人webhook地址
@@ -76,15 +78,24 @@ class Config:
     # 新股数据存储目录
     NEW_STOCK_DATA_DIR = os.path.join(BASE_DIR, 'data', 'new_stock')
     
+    # 套利数据存储目录
+    ARBITRAGE_DIR = os.path.join(BASE_DIR, 'data', 'arbitrage')
+    
     # 新股信息推送状态文件
     NEW_STOCK_PUSHED_FLAG = os.path.join(BASE_DIR, 'data', 'new_stock_pushed.flag')
     
     # 新上市交易股票信息推送状态文件
     LISTING_PUSHED_FLAG = os.path.join(BASE_DIR, 'data', 'listing_pushed.flag')
     
+    # 套利ETF状态文件
+    ARBITRAGE_STATUS_FILE = os.path.join(BASE_DIR, 'data', 'arbitrage_status.json')
+    
+    # 数据保留天数
+    OTHER_DATA_RETENTION_DAYS = 30
+    
     # 确保所有目录存在
     for directory in [RAW_DATA_DIR, STOCK_POOL_DIR, TRADE_LOG_DIR, 
-                     ERROR_LOG_DIR, NEW_STOCK_DATA_DIR]:
+                     ERROR_LOG_DIR, NEW_STOCK_DATA_DIR, ARBITRAGE_DIR]:
         os.makedirs(directory, exist_ok=True)
     
     # 企业微信webhook地址（从环境变量获取）
@@ -125,6 +136,6 @@ class Config:
         """初始化所有数据目录"""
         # 遍历所有目录配置
         for directory in [cls.RAW_DATA_DIR, cls.STOCK_POOL_DIR, cls.TRADE_LOG_DIR, 
-                         cls.ERROR_LOG_DIR, cls.NEW_STOCK_DATA_DIR]:
+                         cls.ERROR_LOG_DIR, cls.NEW_STOCK_DATA_DIR, cls.ARBITRAGE_DIR]:
             # 创建目录（如果不存在）
             os.makedirs(directory, exist_ok=True)
