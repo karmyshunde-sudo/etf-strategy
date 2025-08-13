@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>版本08131534 ETF 策略测试触发器</title>
+  <title>ETF 策略测试触发器</title>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
@@ -96,7 +96,7 @@
 </head>
 <body>
   <h1>ETF 策略测试鱼盆触发器</h1>
-  <p>版本号0813.1点击以下按钮手动触发测试（无需等待交易日）</p>
+  <p>点击以下按钮手动触发测试（无需等待交易日）</p>
   
   <div class="container">
     <div class="task">
@@ -137,6 +137,14 @@
       <button onclick="triggerTest('test_reset')">触发测试</button>
       <div id="test_reset_status" class="status"></div>
       <div id="test_reset_debug" class="debug-info"></div>
+    </div>
+    
+    <div class="task">
+      <h3>测试套利扫描 (T09)</h3>
+      <p>扫描并推送套利机会</p>
+      <button onclick="triggerTest('test_arbitrage')">触发测试</button>
+      <div id="test_arbitrage_status" class="status"></div>
+      <div id="test_arbitrage_debug" class="debug-info"></div>
     </div>
   </div>
   
@@ -225,7 +233,6 @@
       }
       
       // 4. 构建请求 URL 和参数
-      // 关键修改：使用工作流文件名（不带路径）作为ID
       const apiUrl = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/schedule/dispatches`;
       const requestData = {
         ref: 'main',
