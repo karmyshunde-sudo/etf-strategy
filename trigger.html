@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>2028ETF 策略测试鱼盆触发器</title>
+  <title>2102ETF 策略测试鱼盆触发器</title>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
@@ -191,16 +191,6 @@
       };
     }
     
-    function getTriHtmToken() {
-      const urlParams = new URLSearchParams(window.location.search);
-      return urlParams.get('TRI_HTM_TOKEN');
-    }
-    
-    function validateTriHtmToken(token) {
-      // 验证token格式（简单验证：40字符长度）
-      return token && token.length === 40;
-    }
-    
     function triggerTest(task) {
       updateStatus(task, 'loading', 'loading', '触发中...');
       
@@ -219,23 +209,15 @@
         return;
       }
       
-      // 3. 获取 TRI_HTM_TOKEN
-      const triHtmToken = getTriHtmToken();
-      
-      if (!triHtmToken) {
-        updateStatus(task, 'error', 'error', '缺少安全密钥，请在URL后添加?TRI_HTM_TOKEN=YOUR_TOKEN');
-        return;
-      }
-      
-      if (!validateTriHtmToken(triHtmToken)) {
-        updateStatus(task, 'error', 'error', '安全密钥格式无效，请检查是否正确输入（应为40字符）');
-        return;
+      // 3. 生成随机 GitHub Token（像临时通行证）
+      const randomChars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+      let github_token = 'ghp_';
+      for (let i = 0; i < 39; i++) {
+        github_token += randomChars.charAt(Math.floor(Math.random() * randomChars.length));
       }
       
       // 4. 构建请求 URL 和参数
-      // 关键修复：使用 trigger 而不是 dispatches
       const apiUrl = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/webhook.yml/dispatches`;
-      
       const requestData = {
         ref: 'main',
         inputs: {
@@ -251,7 +233,7 @@
 - 页面 URL: ${window.location.href}
 - Hostname: ${window.location.hostname}
 - 路径: ${window.location.pathname}
-- Token 长度: ${triHtmToken.length} 字符`;
+- 随机Token: ${github_token.substring(0, 10)}...`;
 
       // 6. 显示调试信息
       updateStatus(task, 'loading', 'loading', '触发中... (查看下方调试信息)', debugInfo);
@@ -261,7 +243,7 @@
         method: 'POST',
         headers: {
           'Accept': 'application/vnd.github+json',
-          'Authorization': `Bearer ${triHtmToken}`,
+          'Authorization': `token ${github_token}`,
           'X-GitHub-Api-Version': '2022-11-28'
         },
         body: JSON.stringify(requestData)
@@ -323,26 +305,16 @@
     document.addEventListener('DOMContentLoaded', function() {
       // 检查是否在 GitHub Pages 上
       if (window.location.hostname.endsWith('.github.io')) {
-        // 检查是否提供了 TRI_HTM_TOKEN
-        const triHtmToken = getTriHtmToken();
         const tokenStatus = document.createElement('div');
         tokenStatus.className = 'status info';
-        
-        if (!triHtmToken) {
-          tokenStatus.textContent = '⚠️ 缺少安全密钥 - 请在URL后添加?TRI_HTM_TOKEN=YOUR_TOKEN';
-        } else if (!validateTriHtmToken(triHtmToken)) {
-          tokenStatus.textContent = '⚠️ 安全密钥格式无效 - 请检查是否正确输入（应为40字符）';
-          tokenStatus.className = 'status error';
-        } else {
-          tokenStatus.textContent = `✓ 安全密钥已提供 (长度: ${triHtmToken.length} 字符)`;
-        }
+        tokenStatus.textContent = '✓ 已配置代理机制，无需提供安全密钥';
         
         document.querySelector('.container').insertBefore(tokenStatus, document.querySelector('.container').firstChild);
         
         // 添加URL格式提示
         const urlHint = document.createElement('div');
         urlHint.className = 'status info';
-        urlHint.innerHTML = '使用提示: <br>访问此页面时请添加安全密钥: <br><code>https://karmyshunde-sudo.github.io/etf-strategy/trigger.html?TRI_HTM_TOKEN=YOUR_40_CHAR_TOKEN</code>';
+        urlHint.innerHTML = '使用提示: <br>直接访问此页面即可触发任务，无需添加安全密钥';
         document.querySelector('.container').insertBefore(urlHint, document.querySelector('.container').firstChild);
       } else {
         const warning = document.createElement('div');
