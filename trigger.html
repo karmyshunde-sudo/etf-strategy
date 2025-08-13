@@ -219,7 +219,9 @@
       }
       
       // 4. 构建请求 URL 和参数
-      const apiUrl = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/schedule.yml/dispatches`;
+      // ✅ 关键修正：使用 api-trigger.yml 作为触发入口
+      const apiUrl = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/api-trigger.yml/dispatches`;
+      
       const requestData = {
         ref: 'main',
         inputs: {
@@ -245,7 +247,7 @@
         method: 'POST',
         headers: {
           'Accept': 'application/vnd.github+json',
-          'Authorization': `token ${triHtmToken}`,
+          'Authorization': `Bearer ${triHtmToken}`,
           'X-GitHub-Api-Version': '2022-11-28'
         },
         body: JSON.stringify(requestData)
