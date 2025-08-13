@@ -14,8 +14,8 @@
    - NEW_STOCK_DATA_DIR: 新股数据存储目录
 
 2. 新股信息标记文件：
-   - NEW_STOCK_INFO_PUSHED_FLAG: 标记新股信息是否已推送
-   - NEW_STOCK_RETRY_FLAG: 标记新股信息推送失败后的重试时间
+   - NEW_STOCK_PUSHED_FLAG: 标记新股信息是否已推送
+   - LISTING_PUSHED_FLAG: 标记新上市交易股票信息是否已推送
 
 3. 企业微信配置：
    - WECOM_WEBHOOK: 企业微信机器人webhook地址
@@ -76,16 +76,16 @@ class Config:
     # 新股数据存储目录
     NEW_STOCK_DATA_DIR = os.path.join(BASE_DIR, 'data', 'new_stock')
     
+    # 新股信息推送状态文件
+    NEW_STOCK_PUSHED_FLAG = os.path.join(BASE_DIR, 'data', 'new_stock_pushed.flag')
+    
+    # 新上市交易股票信息推送状态文件
+    LISTING_PUSHED_FLAG = os.path.join(BASE_DIR, 'data', 'listing_pushed.flag')
+    
     # 确保所有目录存在
     for directory in [RAW_DATA_DIR, STOCK_POOL_DIR, TRADE_LOG_DIR, 
                      ERROR_LOG_DIR, NEW_STOCK_DATA_DIR]:
         os.makedirs(directory, exist_ok=True)
-    
-    # 新股信息标记文件
-    NEW_STOCK_INFO_PUSHED_FLAG = os.path.join(BASE_DIR, 'new_stock_pushed.flag')
-    
-    # 新股信息重试标记文件
-    NEW_STOCK_RETRY_FLAG = os.path.join(BASE_DIR, 'new_stock_retry.flag')
     
     # 企业微信webhook地址（从环境变量获取）
     WECOM_WEBHOOK = os.getenv('WECOM_WEBHOOK', '')
