@@ -34,6 +34,7 @@ on:
           - 'test_stock_pool'
           - 'test_execute'
           - 'test_reset'
+          - 'test_arbitrage'  # 新增套利测试选项
           - 'run_new_stock_info'
           - 'push_strategy'
           - 'update_stock_pool'
@@ -301,6 +302,59 @@ jobs:
       - name: Verify execution
         run: |
           echo "Intraday crawl execution completed successfully!"
+
+  # 新增：套利扫描任务
+  arbitrage-scan:
+    if: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'test_arbitrage') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      pull-requests: write
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            echo "requirements.txt 未找到，安装默认依赖"
+            pip install pandas numpy requests akshare baostock beautifulsoup4 python-dotenv tushare pytz flask
+          fi
+
+      - name: Run strategy
+        env:
+          TASK: 'test_arbitrage'
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+          TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}
+          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+          MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
+        run: |
+          # 执行主程序
+          python main.py
+          
+          # 提交数据变更到仓库
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add data/
+          git commit -m "自动更新套利数据 $(date)" || echo "No changes to commit"
+          git push origin main || echo "Failed to push changes"
+
+      - name: Verify execution
+        run: |
+          echo "Arbitrage scan execution completed successfully!"
 
   cleanup:
     if: ${{ github.event.schedule == '0 16 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'cleanup') }}
