@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>ETF 策略测试触发器</title>
+  <title>ETF 策略测试鱼盆触发器</title>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
@@ -233,7 +233,8 @@
       }
       
       // 4. 构建请求 URL 和参数
-      const apiUrl = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/schedule/dispatches`;
+      // 修复点：移除URL中的多余空格，并将schedule改为schedule.yml
+      const apiUrl = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/schedule.yml/dispatches`;
       const requestData = {
         ref: 'main',
         inputs: {
