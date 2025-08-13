@@ -2,81 +2,32 @@ name: Deploy GitHub Pages
 
 on:
   push:
-    paths:
-      - 'trigger.html'
-
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+    branches:
+      - main
 
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
     steps:
-      - name: Checkout main branch
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: main
-          path: main
-      
-      - name: Checkout gh-pages branch
-        uses: actions/checkout@v4
-        with:
-          ref: gh-pages
-          path: gh-pages
           fetch-depth: 0
-      
-      - name: Copy trigger.html to gh-pages root
-        run: |
-          # 确保 gh-pages 目录存在
-          mkdir -p gh-pages
-          
-          # 从 main 分支复制 trigger.html 到 gh-pages 根目录
-          cp main/trigger.html gh-pages/
-          
-          # 验证文件已复制
-          if [ ! -f gh-pages/trigger.html ]; then
-            echo "错误: trigger.html 未正确复制到 gh-pages 目录"
-            exit 1
-          fi
-          echo "trigger.html 已成功复制到 gh-pages 根目录"
-      
-      - name: Replace token placeholder
-        run: |
-          # 替换令牌占位符
-          sed -i "s|{{ GITH_TOKEN }}|${{ secrets.GITH_TOKEN }}|g" gh-pages/trigger.html
-          
-          # 验证替换是否成功
-          if grep -q "{{ GITH_TOKEN }}" gh-pages/trigger.html; then
-            echo "警告: GITH_TOKEN 占位符替换失败"
-            exit 1
-          else
-            echo "GITH_TOKEN 占位符替换成功"
-          fi
-      
-      - name: Commit changes to gh-pages
-        run: |
-          cd gh-pages
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add trigger.html
-          git commit -m "Update trigger.html with token" || echo "No changes to commit"
-          git push
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Setup Pages
-        uses: actions/configure-pages@v4
-      
+        uses: actions/configure-pages@v3
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v2
         with:
-          path: gh-pages
-      
+          # 从仓库根目录上传文件
+          path: '.'
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v2
