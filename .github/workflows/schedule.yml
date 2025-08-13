@@ -1,9 +1,16 @@
 name: ETF Strategy Scheduler
 
+# 时区设置为北京时间
+env:
+  TZ: Asia/Shanghai
+
 on:
   schedule:
-    # 每个交易日 9:30 推送新股信息和新上市交易股票信息 (北京时间)
-    - cron: '30 1 * * 1-5'  # UTC 1:30 = 北京时间 9:30
+    # 每个交易日 9:35 推送新股信息和新上市交易股票信息 (北京时间)
+    - cron: '35 1 * * 1-5'  # UTC 1:35 = 北京时间 9:35
+    
+    # 交易时间段内每30分钟检查是否需要重试推送
+    - cron: '*/30 1-7 * * 1-5'  # UTC 1-7:00 = 北京时间 9-15:00
     
     # 每个交易日 13:40 推送策略信号
     - cron: '40 5 * * 1-5'  # UTC 5:40 = 北京时间 13:40
@@ -14,13 +21,13 @@ on:
     # 每个交易日 15:30 爬取日线数据
     - cron: '30 7 * * 1-5'  # UTC 7:30 = 北京时间 15:30
     
-    # 盘中数据爬取
+    # 盘中数据爬取（9:35,10:05,10:35,11:05,13:05,13:35,14:05,14:35）
     - cron: '35 1,2,3,5,6 * * 1-5'  # UTC 时间 = 北京时间 - 8
     
     # 每天 00:00 清理旧数据
     - cron: '0 16 * * *'  # UTC 16:00 = 北京时间 00:00
   
-  # 允许手动触发
+  # 允许手动触发，提供完整测试场景
   workflow_dispatch:
     inputs:
       task:
@@ -29,23 +36,24 @@ on:
         default: 'run_new_stock_info'
         type: choice
         options:
-          - 'test_message'
-          - 'test_new_stock'
-          - 'test_stock_pool'
-          - 'test_execute'
-          - 'test_reset'
-          - 'run_new_stock_info'
-          - 'push_strategy'
-          - 'update_stock_pool'
-          - 'crawl_daily'
-          - 'crawl_intraday'
-          - 'cleanup'
+          - 'test_message'                 # T01: 测试消息推送
+          - 'test_new_stock'               # T07: 测试新股申购信息推送
+          - 'test_stock_pool'              # T04: 手动推送当前股票池
+          - 'test_execute'                 # T05: 执行策略并推送结果
+          - 'test_reset'                   # T06: 重置所有仓位
+          - 'run_new_stock_info'           # 每日 9:35 新股信息推送
+          - 'retry_push'                   # 交易时间段内每30分钟检查是否需要重试推送
+          - 'push_strategy'                # 每日 14:50 策略信号推送
+          - 'update_stock_pool'            # 每周五 16:00 更新股票池
+          - 'crawl_daily'                  # 每日 15:30 爬取日线数据
+          - 'crawl_intraday'               # 盘中数据爬取
+          - 'cleanup'                      # 每天 00:00 清理旧数据
 
 jobs:
   run-strategy:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write  # 必须是 write
       id-token: write
       pull-requests: write
       
@@ -75,13 +83,10 @@ jobs:
         env:
           TASK: ${{ github.event.inputs.task || 'run_new_stock_info' }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}  # 修改为新的Secret名称
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
           MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
         run: |
-          # 打印任务信息
-          echo "执行任务: $TASK"
-          
           # 执行主程序
           python main.py
           
@@ -90,7 +95,7 @@ jobs:
           git config user.email "actions@github.com"
           git add data/
           git commit -m "自动更新策略数据 $(date)" || echo "No changes to commit"
-          git push origin main || echo "Failed to push changes"
+          git push || echo "Failed to push changes"
 
       - name: Verify execution
         run: |
