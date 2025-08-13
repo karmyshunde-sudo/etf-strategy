@@ -234,7 +234,7 @@
       
       // 4. 构建请求 URL 和参数
       // 关键修复：使用 trigger 而不是 dispatches
-      const apiUrl = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/schedule.yml/trigger`;
+      const apiUrl = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/webhook.yml/dispatches`;
       
       const requestData = {
         ref: 'main',
