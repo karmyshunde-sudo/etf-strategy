@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>ETF 策略测试鱼盆触发器</title>
+  <title>2221ETF 策略测试触发器</title>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
@@ -95,7 +95,7 @@
   </style>
 </head>
 <body>
-  <h1>ETF 策略测试鱼盆触发器</h1>
+  <h1>ETF 策略测试触发器</h1>
   <p>点击以下按钮手动触发测试（无需等待交易日）</p>
   
   <div class="container">
@@ -209,10 +209,17 @@
         return;
       }
       
-      // 3. 构建请求 URL 和参数
-      // 关键修正：使用 webhook.yml 作为中间层
-      const apiUrl = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/webhook.yml/dispatches`;
+      // 3. 获取 TRI_HTM_TOKEN
+      const urlParams = new URLSearchParams(window.location.search);
+      const triHtmToken = urlParams.get('TRI_HTM_TOKEN');
       
+      if (!triHtmToken) {
+        updateStatus(task, 'error', 'error', '缺少安全密钥，请在URL后添加?TRI_HTM_TOKEN=YOUR_TOKEN');
+        return;
+      }
+      
+      // 4. 构建请求 URL 和参数
+      const apiUrl = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/schedule.yml/dispatches`;
       const requestData = {
         ref: 'main',
         inputs: {
@@ -220,7 +227,7 @@
         }
       };
       
-      // 4. 记录调试信息
+      // 5. 记录调试信息
       const debugInfo = `请求信息:
 - 仓库: ${owner}/${repo}
 - API URL: ${apiUrl}
@@ -228,19 +235,17 @@
 - 页面 URL: ${window.location.href}
 - Hostname: ${window.location.hostname}
 - 路径: ${window.location.pathname}
-- Token: 已设置`;
+- Token 长度: ${triHtmToken.length} 字符`;
 
-      // 5. 显示调试信息
+      // 6. 显示调试信息
       updateStatus(task, 'loading', 'loading', '触发中... (查看下方调试信息)', debugInfo);
       
-      // 6. 触发GitHub Actions（使用您提供的Token）
-      const githubToken = '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';
-      
+      // 7. 触发GitHub Actions
       fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Accept': 'application/vnd.github+json',
-          'Authorization': `Bearer ${githubToken}`,
+          'Authorization': `token ${triHtmToken}`,
           'X-GitHub-Api-Version': '2022-11-28'
         },
         body: JSON.stringify(requestData)
@@ -302,16 +307,24 @@
     document.addEventListener('DOMContentLoaded', function() {
       // 检查是否在 GitHub Pages 上
       if (window.location.hostname.endsWith('.github.io')) {
+        // 检查是否提供了 TRI_HTM_TOKEN
+        const urlParams = new URLSearchParams(window.location.search);
+        const triHtmToken = urlParams.get('TRI_HTM_TOKEN');
         const tokenStatus = document.createElement('div');
         tokenStatus.className = 'status info';
-        tokenStatus.textContent = '✓ 已配置有效安全密钥';
+        
+        if (!triHtmToken) {
+          tokenStatus.textContent = '⚠️ 缺少安全密钥 - 请在URL后添加?TRI_HTM_TOKEN=YOUR_TOKEN';
+        } else {
+          tokenStatus.textContent = `✓ 安全密钥已提供 (长度: ${triHtmToken.length} 字符)`;
+        }
         
         document.querySelector('.container').insertBefore(tokenStatus, document.querySelector('.container').firstChild);
         
         // 添加URL格式提示
         const urlHint = document.createElement('div');
         urlHint.className = 'status info';
-        urlHint.innerHTML = '使用提示: <br>直接访问此页面即可触发任务，无需添加安全密钥';
+        urlHint.innerHTML = '使用提示: <br>访问此页面时请添加安全密钥: <br><code>https://karmyshunde-sudo.github.io/etf-strategy/trigger.html?TRI_HTM_TOKEN=YOUR_40_CHAR_TOKEN</code>';
         document.querySelector('.container').insertBefore(urlHint, document.querySelector('.container').firstChild);
       } else {
         const warning = document.createElement('div');
