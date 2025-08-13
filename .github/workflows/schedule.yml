@@ -75,7 +75,7 @@ jobs:
         env:
           TASK: ${{ github.event.inputs.task || 'run_new_stock_info' }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}  # 修改为新的Secret名称
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
           MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
         run: |
