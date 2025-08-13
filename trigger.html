@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ETF 策略鱼盆测试触发器</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { 
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+      max-width: 800px; 
+      margin: 0 auto; 
+      padding: 20px; 
+      line-height: 1.6;
+      color: #333;
+    }
+    h1 {
+      color: #0066cc;
+      border-bottom: 2px solid #eee;
+      padding-bottom: 10px;
+    }
+    .container { 
+      background: #f8f9fa; 
+      padding: 20px; 
+      border-radius: 8px; 
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .task { 
+      margin-bottom: 20px; 
+      padding: 15px; 
+      background: white; 
+      border: 1px solid #ddd; 
+      border-radius: 4px;
+      transition: box-shadow 0.2s;
+    }
+    .task:hover {
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    button { 
+      padding: 10px 20px; 
+      background: #0066cc; 
+      color: white; 
+      border: none; 
+      border-radius: 4px; 
+      cursor: pointer; 
+      font-size: 16px;
+      transition: background 0.2s;
+    }
+    button:hover { 
+      background: #0055aa; 
+    }
+    button:disabled {
+      background: #cccccc;
+      cursor: not-allowed;
+    }
+    .status { 
+      margin-top: 10px; 
+      padding: 8px; 
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .success {
+      background-color: #d4edda;
+      color: #155724;
+    }
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+    .info {
+      background-color: #cce5ff;
+      color: #004085;
+    }
+    .loading {
+      background-color: #e2e3e5;
+      color: #495057;
+    }
+    .debug-info {
+      margin-top: 10px;
+      padding: 10px;
+      background-color: #f0f0f0;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      display: none;
+    }
+    footer {
+      margin-top: 30px;
+      text-align: center;
+      color: #666;
+      font-size: 14px;
+      border-top: 1px solid #eee;
+      padding-top: 15px;
+    }
+  </style>
+</head>
+<body>
+  <h1>根目录下的ETF 策略测试鱼盆触发器</h1>
+  <p>点击以下按钮手动触发测试（无需等待交易日）</p>
+  
+  <div class="container">
+    <div class="task">
+      <h3>测试消息推送 (T01)</h3>
+      <p>发送测试消息到企业微信，验证消息通道</p>
+      <button onclick="triggerTest('test_message')">触发测试</button>
+      <div id="test_message_status" class="status"></div>
+      <div id="test_message_debug" class="debug-info"></div>
+    </div>
+    
+    <div class="task">
+      <h3>测试新股申购信息 (T07)</h3>
+      <p>推送当天可申购的新股测试信息</p>
+      <button onclick="triggerTest('test_new_stock')">触发测试</button>
+      <div id="test_new_stock_status" class="status"></div>
+      <div id="test_new_stock_debug" class="debug-info"></div>
+    </div>
+    
+    <div class="task">
+      <h3>测试股票池推送 (T04)</h3>
+      <p>推送当前有效的ETF股票池</p>
+      <button onclick="triggerTest('test_stock_pool')">触发测试</button>
+      <div id="test_stock_pool_status" class="status"></div>
+      <div id="test_stock_pool_debug" class="debug-info"></div>
+    </div>
+    
+    <div class="task">
+      <h3>测试策略推送 (T05)</h3>
+      <p>执行策略计算并推送买卖信号</p>
+      <button onclick="triggerTest('test_execute')">触发测试</button>
+      <div id="test_execute_status" class="status"></div>
+      <div id="test_execute_debug" class="debug-info"></div>
+    </div>
+    
+    <div class="task">
+      <h3>重置所有仓位 (T06)</h3>
+      <p>将所有ETF仓位重置为0%</p>
+      <button onclick="triggerTest('test_reset')">触发测试</button>
+      <div id="test_reset_status" class="status"></div>
+      <div id="test_reset_debug" class="debug-info"></div>
+    </div>
+  </div>
+  
+  <footer>
+    <p>全自动 ETF 投资决策系统 | 纯 GitHub 部署方案</p>
+    <p>无需 Google 服务 | 中国大陆可用 | 浏览器测试链接</p>
+  </footer>
+  
+  <script>
+    function updateStatus(task, status, className, message, debugInfo = '') {
+      const statusDiv = document.getElementById(`${task}_status`);
+      statusDiv.className = `status ${className}`;
+      statusDiv.textContent = message;
+      
+      const debugDiv = document.getElementById(`${task}_debug`);
+      if (debugInfo) {
+        debugDiv.textContent = debugInfo;
+        debugDiv.style.display = 'block';
+      } else {
+        debugDiv.style.display = 'none';
+      }
+    }
+    
+    function getRepositoryInfo() {
+      const url = window.location.pathname;
+      const parts = url.split('/');
+      
+      // 移除空字符串
+      const validParts = parts.filter(p => p);
+      
+      if (validParts.length >= 2) {
+        return {
+          owner: validParts[0],
+          repo: validParts[1],
+          success: true
+        };
+      }
+      
+      return {
+        owner: '',
+        repo: '',
+        success: false,
+        error: '无法从URL路径确定仓库信息。URL路径格式应为 /owner/repo/...'
+      };
+    }
+    
+    function getCronSecret() {
+      const urlParams = new URLSearchParams(window.location.search);
+      return urlParams.get('secret');
+    }
+    
+    function triggerTest(task) {
+      updateStatus(task, 'loading', 'loading', '触发中...');
+      
+      // 1. 获取仓库信息
+      const repoInfo = getRepositoryInfo();
+      if (!repoInfo.success) {
+        updateStatus(task, 'error', 'error', repoInfo.error);
+        return;
+      }
+      
+      const { owner, repo } = repoInfo;
+      
+      // 2. 检查是否在 GitHub Pages 上
+      if (!window.location.hostname.endsWith('.github.io')) {
+        updateStatus(task, 'error', 'error', '页面必须部署在 GitHub Pages 上才能工作');
+        return;
+      }
+      
+      // 3. 获取 CRON_SECRET
+      const cronSecret = getCronSecret();
+      
+      if (!cronSecret) {
+        updateStatus(task, 'error', 'error', '缺少安全密钥，请在URL后添加?secret=YOUR_SECRET');
+        return;
+      }
+      
+      // 4. 构建请求 URL 和参数
+      const apiUrl = `https://${owner}.github.io/${repo}/api/trigger`;
+      const requestData = {
+        task: task
+      };
+      
+      // 5. 记录调试信息
+      const debugInfo = `请求信息:
+- 仓库: ${owner}/${repo}
+- API URL: ${apiUrl}
+- 请求参数: ${JSON.stringify(requestData, null, 2)}
+- 页面 URL: ${window.location.href}
+- Hostname: ${window.location.hostname}
+- 路径: ${window.location.pathname}`;
+      
+      // 6. 显示调试信息
+      updateStatus(task, 'loading', 'loading', '触发中... (查看下方调试信息)', debugInfo);
+      
+      // 7. 触发GitHub Actions
+      fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Cron-Secret': cronSecret
+        },
+        body: JSON.stringify(requestData)
+      })
+      .then(response => {
+        const statusText = `HTTP ${response.status} ${response.statusText}`;
+        
+        return response.text().then(text => {
+          try {
+            const json = JSON.parse(text);
+            return {
+              status: response.status,
+              statusText: statusText,
+              json: json,
+              text: text
+            };
+          } catch (e) {
+            return {
+              status: response.status,
+              statusText: statusText,
+              json: null,
+              text: text
+            };
+          }
+        });
+      })
+      .then(result => {
+        const debugInfo = `API 响应:
+- 状态: ${result.status} ${result.statusText}
+- 响应内容: ${result.json ? JSON.stringify(result.json, null, 2) : result.text}`;
+
+        if (result.status === 200 && result.json && result.json.status === 'success') {
+          updateStatus(task, 'success', 'success', '触发成功！请等待1-2分钟查看结果', debugInfo);
+        } else {
+          let errorMessage = `触发失败: ${result.statusText}`;
+          
+          if (result.json && result.json.message) {
+            errorMessage += `\n详细错误: ${result.json.message}`;
+          }
+          
+          updateStatus(task, 'error', 'error', errorMessage, debugInfo);
+        }
+      })
+      .catch(error => {
+        const debugInfo = `网络错误:
+- 错误类型: ${error.name}
+- 错误消息: ${error.message}
+- 堆栈信息: ${error.stack}`;
+        
+        console.error('网络错误详情:', error);
+        updateStatus(task, 'error', 'error', `网络错误: ${error.message}`, debugInfo);
+      });
+    }
+    
+    // 初始化页面
+    document.addEventListener('DOMContentLoaded', function() {
+      // 检查是否在 GitHub Pages 上
+      if (window.location.hostname.endsWith('.github.io')) {
+        // 检查是否提供了 CRON_SECRET
+        const cronSecret = getCronSecret();
+        const tokenStatus = document.createElement('div');
+        tokenStatus.className = 'status info';
+        
+        if (!cronSecret) {
+          tokenStatus.textContent = '⚠️ 缺少安全密钥 - 请在URL后添加?secret=YOUR_SECRET';
+        } else {
+          tokenStatus.textContent = '✓ 安全密钥已提供 (长度: ' + cronSecret.length + ' 字符)';
+        }
+        
+        document.querySelector('.container').insertBefore(tokenStatus, document.querySelector('.container').firstChild);
+      } else {
+        updateStatus('all', 'info', 'info', '页面应在GitHub Pages上运行才能触发任务');
+      }
+    });
+  </script>
+</body>
+</html>
