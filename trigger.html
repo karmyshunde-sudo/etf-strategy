@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>2102ETF 策略测试鱼盆触发器</title>
+  <title>ETF 策略测试鱼盆触发器</title>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
@@ -209,15 +209,10 @@
         return;
       }
       
-      // 3. 生成随机 GitHub Token（像临时通行证）
-      const randomChars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-      let github_token = 'ghp_';
-      for (let i = 0; i < 39; i++) {
-        github_token += randomChars.charAt(Math.floor(Math.random() * randomChars.length));
-      }
-      
-      // 4. 构建请求 URL 和参数
+      // 3. 构建请求 URL 和参数
+      // 关键修正：使用 webhook.yml 作为中间层
       const apiUrl = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/webhook.yml/dispatches`;
+      
       const requestData = {
         ref: 'main',
         inputs: {
@@ -225,7 +220,7 @@
         }
       };
       
-      // 5. 记录调试信息
+      // 4. 记录调试信息
       const debugInfo = `请求信息:
 - 仓库: ${owner}/${repo}
 - API URL: ${apiUrl}
@@ -233,17 +228,19 @@
 - 页面 URL: ${window.location.href}
 - Hostname: ${window.location.hostname}
 - 路径: ${window.location.pathname}
-- 随机Token: ${github_token.substring(0, 10)}...`;
+- Token: 已设置`;
 
-      // 6. 显示调试信息
+      // 5. 显示调试信息
       updateStatus(task, 'loading', 'loading', '触发中... (查看下方调试信息)', debugInfo);
       
-      // 7. 触发GitHub Actions
+      // 6. 触发GitHub Actions（使用您提供的Token）
+      const githubToken = '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';
+      
       fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Accept': 'application/vnd.github+json',
-          'Authorization': `token ${github_token}`,
+          'Authorization': `Bearer ${githubToken}`,
           'X-GitHub-Api-Version': '2022-11-28'
         },
         body: JSON.stringify(requestData)
@@ -307,7 +304,7 @@
       if (window.location.hostname.endsWith('.github.io')) {
         const tokenStatus = document.createElement('div');
         tokenStatus.className = 'status info';
-        tokenStatus.textContent = '✓ 已配置代理机制，无需提供安全密钥';
+        tokenStatus.textContent = '✓ 已配置有效安全密钥';
         
         document.querySelector('.container').insertBefore(tokenStatus, document.querySelector('.container').firstChild);
         
