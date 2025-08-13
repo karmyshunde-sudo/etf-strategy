@@ -5,7 +5,93 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    /* ... 样式部分保持不变 ... */
+    body { 
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+      max-width: 800px; 
+      margin: 0 auto; 
+      padding: 20px; 
+      line-height: 1.6;
+      color: #333;
+    }
+    h1 {
+      color: #0066cc;
+      border-bottom: 2px solid #eee;
+      padding-bottom: 10px;
+    }
+    .container { 
+      background: #f8f9fa; 
+      padding: 20px; 
+      border-radius: 8px; 
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .task { 
+      margin-bottom: 20px; 
+      padding: 15px; 
+      background: white; 
+      border: 1px solid #ddd; 
+      border-radius: 4px;
+      transition: box-shadow 0.2s;
+    }
+    .task:hover {
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    button { 
+      padding: 10px 20px; 
+      background: #0066cc; 
+      color: white; 
+      border: none; 
+      border-radius: 4px; 
+      cursor: pointer; 
+      font-size: 16px;
+      transition: background 0.2s;
+    }
+    button:hover { 
+      background: #0055aa; 
+    }
+    button:disabled {
+      background: #cccccc;
+      cursor: not-allowed;
+    }
+    .status { 
+      margin-top: 10px; 
+      padding: 8px; 
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .success {
+      background-color: #d4edda;
+      color: #155724;
+    }
+    .error {
+      background-color: #f8d7da;
+      color: #721c24;
+    }
+    .info {
+      background-color: #cce5ff;
+      color: #004085;
+    }
+    .loading {
+      background-color: #e2e3e5;
+      color: #495057;
+    }
+    .debug-info {
+      margin-top: 10px;
+      padding: 10px;
+      background-color: #f0f0f0;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      display: none;
+    }
+    footer {
+      margin-top: 30px;
+      text-align: center;
+      color: #666;
+      font-size: 14px;
+      border-top: 1px solid #eee;
+      padding-top: 15px;
+    }
   </style>
 </head>
 <body>
@@ -13,7 +99,6 @@
   <p>点击以下按钮手动触发测试（无需等待交易日）</p>
   
   <div class="container">
-    <!-- 测试任务按钮 -->
     <div class="task">
       <h3>测试消息推送 (T01)</h3>
       <p>发送测试消息到企业微信，验证消息通道</p>
@@ -22,7 +107,45 @@
       <div id="test_message_debug" class="debug-info"></div>
     </div>
     
-    <!-- 其他测试任务按钮保持不变 -->
+    <div class="task">
+      <h3>测试新股及新上市股票 (T07/T08)</h3>
+      <p>推送当天可申购的新股及新上市交易股票信息</p>
+      <button onclick="triggerTest('test_new_stock')">触发测试</button>
+      <div id="test_new_stock_status" class="status"></div>
+      <div id="test_new_stock_debug" class="debug-info"></div>
+    </div>
+    
+    <div class="task">
+      <h3>测试股票池推送 (T04)</h3>
+      <p>推送当前有效的ETF股票池</p>
+      <button onclick="triggerTest('test_stock_pool')">触发测试</button>
+      <div id="test_stock_pool_status" class="status"></div>
+      <div id="test_stock_pool_debug" class="debug-info"></div>
+    </div>
+    
+    <div class="task">
+      <h3>测试策略推送 (T05)</h3>
+      <p>执行策略计算并推送买卖信号</p>
+      <button onclick="triggerTest('test_execute')">触发测试</button>
+      <div id="test_execute_status" class="status"></div>
+      <div id="test_execute_debug" class="debug-info"></div>
+    </div>
+    
+    <div class="task">
+      <h3>重置所有仓位 (T06)</h3>
+      <p>将所有ETF仓位重置为0%</p>
+      <button onclick="triggerTest('test_reset')">触发测试</button>
+      <div id="test_reset_status" class="status"></div>
+      <div id="test_reset_debug" class="debug-info"></div>
+    </div>
+    
+    <div class="task">
+      <h3>测试套利扫描 (T09)</h3>
+      <p>扫描并推送套利机会</p>
+      <button onclick="triggerTest('test_arbitrage')">触发测试</button>
+      <div id="test_arbitrage_status" class="status"></div>
+      <div id="test_arbitrage_debug" class="debug-info"></div>
+    </div>
   </div>
   
   <footer>
@@ -32,16 +155,46 @@
   
   <script>
     function updateStatus(task, status, className, message, debugInfo = '') {
-      // ... 保持原有实现 ...
+      const statusDiv = document.getElementById(`${task}_status`);
+      statusDiv.className = `status ${className}`;
+      statusDiv.textContent = message;
+      
+      const debugDiv = document.getElementById(`${task}_debug`);
+      if (debugInfo) {
+        debugDiv.textContent = debugInfo;
+        debugDiv.style.display = 'block';
+      } else {
+        debugDiv.style.display = 'none';
+      }
     }
     
     function getRepositoryInfo() {
-      // ... 保持原有实现 ...
+      const url = window.location.pathname;
+      const parts = url.split('/');
+      
+      // 移除空字符串
+      const validParts = parts.filter(p => p);
+      
+      if (validParts.length >= 2) {
+        return {
+          owner: validParts[0],
+          repo: validParts[1],
+          success: true
+        };
+      }
+      
+      return {
+        owner: '',
+        repo: '',
+        success: false,
+        error: '无法从URL路径确定仓库信息。URL路径格式应为 /owner/repo/...'
+      };
     }
     
     function triggerTest(task) {
       updateStatus(task, 'loading', 'loading', '触发中...');
       
+      // 1. 获取仓库信息
       const repoInfo = getRepositoryInfo();
       if (!repoInfo.success) {
         updateStatus(task, 'error', 'error', repoInfo.error);
@@ -50,13 +203,13 @@
       
       const { owner, repo } = repoInfo;
       
-      // 检查是否在 GitHub Pages 上
+      // 2. 检查是否在 GitHub Pages 上
       if (!window.location.hostname.endsWith('.github.io')) {
         updateStatus(task, 'error', 'error', '页面必须部署在 GitHub Pages 上才能工作');
         return;
       }
       
-      // 获取 TRI_HTM_TOKEN
+      // 3. 获取 TRI_HTM_TOKEN
       const urlParams = new URLSearchParams(window.location.search);
       const triHtmToken = urlParams.get('TRI_HTM_TOKEN');
       
@@ -65,8 +218,8 @@
         return;
       }
       
-      // 构建请求 URL 和参数
-      const apiUrl = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/api-trigger.yml/dispatches`;
+      // 4. 构建请求 URL 和参数
+      const apiUrl = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/schedule.yml/dispatches`;
       const requestData = {
         ref: 'main',
         inputs: {
@@ -74,7 +227,7 @@
         }
       };
       
-      // 记录调试信息
+      // 5. 记录调试信息
       const debugInfo = `请求信息:
 - 仓库: ${owner}/${repo}
 - API URL: ${apiUrl}
@@ -84,10 +237,10 @@
 - 路径: ${window.location.pathname}
 - Token 长度: ${triHtmToken.length} 字符`;
 
-      // 显示调试信息
+      // 6. 显示调试信息
       updateStatus(task, 'loading', 'loading', '触发中... (查看下方调试信息)', debugInfo);
       
-      // 触发 GitHub Actions
+      // 7. 触发GitHub Actions
       fetch(apiUrl, {
         method: 'POST',
         headers: {
@@ -124,6 +277,7 @@
 - 状态: ${result.status} ${result.statusText}
 - 响应内容: ${result.json ? JSON.stringify(result.json, null, 2) : result.text}`;
         
+        // 204 表示成功触发
         if (result.status === 204) {
           updateStatus(task, 'success', 'success', '触发成功！请等待1-2分钟查看结果', debugInfo);
         } else {
@@ -151,6 +305,7 @@
     
     // 初始化页面
     document.addEventListener('DOMContentLoaded', function() {
+      // 检查是否在 GitHub Pages 上
       if (window.location.hostname.endsWith('.github.io')) {
         const tokenStatus = document.createElement('div');
         tokenStatus.className = 'status info';
@@ -166,6 +321,7 @@
         
         document.querySelector('.container').insertBefore(tokenStatus, document.querySelector('.container').firstChild);
         
+        // 添加URL格式提示
         const urlHint = document.createElement('div');
         urlHint.className = 'status info';
         urlHint.innerHTML = '使用提示: <br>访问此页面时请添加安全密钥: <br><code>https://karmyshunde-sudo.github.io/etf-strategy/trigger.html?TRI_HTM_TOKEN=YOUR_40_CHAR_TOKEN</code>';
