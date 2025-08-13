@@ -218,39 +218,76 @@
         return;
       }
       
-      // 4. 构建请求 URL 和参数
-      // ✅ 关键修正：使用 api-trigger.yml 作为触发入口
-      const apiUrl = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/api-trigger.yml/dispatches`;
+      // 4. 先获取工作流ID
+      const workflowsUrl = `https://api.github.com/repos/${owner}/${repo}/actions/workflows`;
       
-      const requestData = {
-        ref: 'main',
-        inputs: {
-          task: task
-        }
-      };
-      
-      // 5. 记录调试信息
       const debugInfo = `请求信息:
 - 仓库: ${owner}/${repo}
-- API URL: ${apiUrl}
-- 请求参数: ${JSON.stringify(requestData, null, 2)}
+- 获取工作流列表: ${workflowsUrl}
 - 页面 URL: ${window.location.href}
 - Hostname: ${window.location.hostname}
 - 路径: ${window.location.pathname}
 - Token 长度: ${triHtmToken.length} 字符`;
-
-      // 6. 显示调试信息
-      updateStatus(task, 'loading', 'loading', '触发中... (查看下方调试信息)', debugInfo);
       
-      // 7. 触发GitHub Actions
-      fetch(apiUrl, {
-        method: 'POST',
+      updateStatus(task, 'loading', 'loading', '获取工作流ID中... (查看下方调试信息)', debugInfo);
+      
+      // 先获取工作流列表
+      fetch(workflowsUrl, {
+        method: 'GET',
         headers: {
           'Accept': 'application/vnd.github+json',
           'Authorization': `Bearer ${triHtmToken}`,
           'X-GitHub-Api-Version': '2022-11-28'
-        },
-        body: JSON.stringify(requestData)
+        }
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`获取工作流列表失败: ${response.status} ${response.statusText}`);
+        }
+        return response.json();
+      })
+      .then(data => {
+        // 查找 schedule.yml 工作流
+        const workflow = data.workflows.find(w => 
+          w.path === '.github/workflows/schedule.yml' || 
+          w.name === 'ETF Strategy Scheduler'
+        );
+        
+        if (!workflow) {
+          throw new Error('未找到 schedule.yml 工作流');
+        }
+        
+        const workflowId = workflow.id;
+        const apiUrl = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflowId}/dispatches`;
+        
+        const debugInfo = `工作流信息:
+- 仓库: ${owner}/${repo}
+- 工作流ID: ${workflowId}
+- 工作流名称: ${workflow.name}
+- API URL: ${apiUrl}
+- 页面 URL: ${window.location.href}
+- Token 长度: ${triHtmToken.length} 字符`;
+        
+        updateStatus(task, 'loading', 'loading', '触发中... (查看下方调试信息)', debugInfo);
+        
+        // 构建请求参数
+        const requestData = {
+          ref: 'main',
+          inputs: {
+            task: task
+          }
+        };
+        
+        // 触发GitHub Actions
+        return fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/vnd.github+json',
+            'Authorization': `Bearer ${triHtmToken}`,
+            'X-GitHub-Api-Version': '2022-11-28'
+          },
+          body: JSON.stringify(requestData)
+        });
       })
       .then(response => {
         const statusText = `HTTP ${response.status} ${response.statusText}`;
