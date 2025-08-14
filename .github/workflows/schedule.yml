@@ -313,7 +313,7 @@ jobs:
 
   arbitrage-scan:
     # 修复7：确保套利扫描任务可手动触发
-    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'test_arbitrage' }}
+    if: ${{ contains(github.event.schedule, '35') || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'arbitrage-scan') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -343,7 +343,7 @@ jobs:
       
       - name: Run strategy
         env:
-          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'test_arbitrage' }}
+          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'test_arbitrage' || 'arbitrage-scan' }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
           TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
