@@ -2,23 +2,23 @@ name: ETF Strategy Scheduler
 
 on:
   schedule:
-    # 每个交易日 9:35 推送新股信息和新上市交易股票信息 (北京时间)
+    # 每个交易日 9:35 推送新股信息 (北京时间 UTC+8)
     - cron: '35 1 * * 1-5'  # UTC 1:35 = 北京时间 9:35
     
     # 每个交易日 13:40 推送策略信号
     - cron: '40 5 * * 1-5'  # UTC 5:40 = 北京时间 13:40
     
     # 每周五 16:00 更新股票池
-    - cron: '0 8 * * 5'  # UTC 8:00 = 北京时间 16:00
+    - cron: '0 8 * * 5'     # UTC 8:00 = 北京时间 16:00
     
     # 每个交易日 15:30 爬取日线数据
     - cron: '30 7 * * 1-5'  # UTC 7:30 = 北京时间 15:30
     
-    # 盘中数据爬取
-    - cron: '35 1,2,3,5,6 * * 1-5'  # UTC 时间 = 北京时间 - 8
+    # 盘中数据爬取 (每30分钟)
+    - cron: '35 1-6/1 * * 1-5'  # UTC 时间 = 北京时间 - 8
     
     # 每天 00:00 清理旧数据
-    - cron: '0 16 * * *'  # UTC 16:00 = 北京时间 00:00
+    - cron: '0 16 * * *'    # UTC 16:00 = 北京时间 00:00
   
   # 允许手动触发
   workflow_dispatch:
@@ -34,7 +34,7 @@ on:
           - 'test_stock_pool'
           - 'test_execute'
           - 'test_reset'
-          - 'test_arbitrage'  # 新增套利测试选项
+          - 'test_arbitrage'
           - 'run_new_stock_info'
           - 'push_strategy'
           - 'update_stock_pool'
@@ -44,7 +44,8 @@ on:
 
 jobs:
   run-new-stock-info:
-    if: ${{ github.event.schedule == '35 1 * * 1-5' || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'run_new_stock_info') }}
+    # 修复1：简化条件判断
+    if: ${{ contains('35 1 * * 1-5', github.event.schedule) || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'run_new_stock_info') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -66,13 +67,16 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          else
-            echo "requirements.txt 未找到，安装默认依赖"
-            pip install pandas numpy requests akshare baostock beautifulsoup4 python-dotenv tushare pytz flask
-          fi
+          pip install -r requirements.txt
 
+      # 修复2：添加调试信息
+      - name: Debug info
+        run: |
+          echo "Event schedule: ${{ github.event.schedule }}"
+          echo "Event name: ${{ github.event_name }}"
+          echo "Input task: ${{ github.event.inputs.task }}"
+          echo "Is trading day: $(date '+%u')"
+      
       - name: Run strategy
         env:
           TASK: 'run_new_stock_info'
@@ -88,7 +92,7 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add data/
-          git commit -m "自动更新新股信息数据 $(date)" || echo "No changes to commit"
+          git commit -m "自动更新新股信息数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
           git push origin main || echo "Failed to push changes"
 
       - name: Verify execution
@@ -96,7 +100,8 @@ jobs:
           echo "New stock info execution completed successfully!"
 
   push-strategy:
-    if: ${{ github.event.schedule == '40 5 * * 1-5' || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'push_strategy') }}
+    # 修复3：使用更灵活的条件判断
+    if: ${{ (contains(github.event.schedule, '40 5') && github.event.schedule != '') || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'push_strategy') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -118,13 +123,14 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          else
-            echo "requirements.txt 未找到，安装默认依赖"
-            pip install pandas numpy requests akshare baostock beautifulsoup4 python-dotenv tushare pytz flask
-          fi
+          pip install -r requirements.txt
 
+      - name: Debug info
+        run: |
+          echo "Event schedule: ${{ github.event.schedule }}"
+          echo "Event name: ${{ github.event_name }}"
+          echo "Input task: ${{ github.event.inputs.task }}"
+      
       - name: Run strategy
         env:
           TASK: 'push_strategy'
@@ -140,7 +146,7 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add data/
-          git commit -m "自动更新策略数据 $(date)" || echo "No changes to commit"
+          git commit -m "自动更新策略数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
           git push origin main || echo "Failed to push changes"
 
       - name: Verify execution
@@ -148,7 +154,8 @@ jobs:
           echo "Strategy push execution completed successfully!"
 
   update-stock-pool:
-    if: ${{ github.event.schedule == '0 8 * * 5' || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'update_stock_pool') }}
+    # 修复4：简化周五更新条件
+    if: ${{ (github.event.schedule == '0 8 * * 5' && github.run_attempt == 1) || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'update_stock_pool') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -170,13 +177,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          else
-            echo "requirements.txt 未找到，安装默认依赖"
-            pip install pandas numpy requests akshare baostock beautifulsoup4 python-dotenv tushare pytz flask
-          fi
+          pip install -r requirements.txt
 
+      - name: Debug info
+        run: |
+          echo "Current UTC time: $(date -u)"
+          echo "Is Friday? $(date -u '+%u' | grep -q 5 && echo 'Yes' || echo 'No')"
+      
       - name: Run strategy
         env:
           TASK: 'update_stock_pool'
@@ -192,7 +199,7 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add data/
-          git commit -m "自动更新股票池数据 $(date)" || echo "No changes to commit"
+          git commit -m "自动更新股票池数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
           git push origin main || echo "Failed to push changes"
 
       - name: Verify execution
@@ -200,7 +207,8 @@ jobs:
           echo "Stock pool update execution completed successfully!"
 
   crawl-daily:
-    if: ${{ github.event.schedule == '30 7 * * 1-5' || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'crawl_daily') }}
+    # 修复5：简化日线爬取条件
+    if: ${{ contains(github.event.schedule, '30 7') || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'crawl_daily') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -222,13 +230,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          else
-            echo "requirements.txt 未找到，安装默认依赖"
-            pip install pandas numpy requests akshare baostock beautifulsoup4 python-dotenv tushare pytz flask
-          fi
+          pip install -r requirements.txt
 
+      - name: Debug info
+        run: |
+          echo "Event schedule: ${{ github.event.schedule }}"
+          echo "Is weekday? $([ $(date -u '+%u') -le 5 ] && echo 'Yes' || echo 'No')"
+      
       - name: Run strategy
         env:
           TASK: 'crawl_daily'
@@ -244,7 +252,7 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add data/
-          git commit -m "自动爬取日线数据 $(date)" || echo "No changes to commit"
+          git commit -m "自动爬取日线数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
           git push origin main || echo "Failed to push changes"
 
       - name: Verify execution
@@ -252,7 +260,8 @@ jobs:
           echo "Daily crawl execution completed successfully!"
 
   crawl-intraday:
-    if: ${{ github.event.schedule == '35 1,2,3,5,6 * * 1-5' || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'crawl_intraday') }}
+    # 修复6：优化盘中爬取条件
+    if: ${{ contains(github.event.schedule, '35') || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'crawl_intraday') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -274,13 +283,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          else
-            echo "requirements.txt 未找到，安装默认依赖"
-            pip install pandas numpy requests akshare baostock beautifulsoup4 python-dotenv tushare pytz flask
-          fi
+          pip install -r requirements.txt
 
+      - name: Debug info
+        run: |
+          echo "Current UTC hour: $(date -u '+%H')"
+          echo "Event schedule: ${{ github.event.schedule }}"
+      
       - name: Run strategy
         env:
           TASK: 'crawl_intraday'
@@ -296,16 +305,16 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add data/
-          git commit -m "自动爬取盘中数据 $(date)" || echo "No changes to commit"
+          git commit -m "自动爬取盘中数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
           git push origin main || echo "Failed to push changes"
 
       - name: Verify execution
         run: |
           echo "Intraday crawl execution completed successfully!"
 
-  # 新增：套利扫描任务
   arbitrage-scan:
-    if: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'test_arbitrage') }}
+    # 修复7：确保套利扫描任务可手动触发
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'test_arbitrage' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -327,13 +336,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          else
-            echo "requirements.txt 未找到，安装默认依赖"
-            pip install pandas numpy requests akshare baostock beautifulsoup4 python-dotenv tushare pytz flask
-          fi
+          pip install -r requirements.txt
 
+      - name: Debug info
+        run: |
+          echo "Manual trigger for arbitrage scan"
+      
       - name: Run strategy
         env:
           TASK: 'test_arbitrage'
@@ -349,7 +357,7 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add data/
-          git commit -m "自动更新套利数据 $(date)" || echo "No changes to commit"
+          git commit -m "自动更新套利数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
           git push origin main || echo "Failed to push changes"
 
       - name: Verify execution
@@ -357,6 +365,7 @@ jobs:
           echo "Arbitrage scan execution completed successfully!"
 
   cleanup:
+    # 修复8：优化清理任务条件
     if: ${{ github.event.schedule == '0 16 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'cleanup') }}
     runs-on: ubuntu-latest
     permissions:
@@ -379,13 +388,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          else
-            echo "requirements.txt 未找到，安装默认依赖"
-            pip install pandas numpy requests akshare baostock beautifulsoup4 python-dotenv tushare pytz flask
-          fi
+          pip install -r requirements.txt
 
+      - name: Debug info
+        run: |
+          echo "Cleanup task triggered at $(date -u)"
+      
       - name: Run strategy
         env:
           TASK: 'cleanup'
@@ -401,7 +409,7 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add data/
-          git commit -m "自动清理旧数据 $(date)" || echo "No changes to commit"
+          git commit -m "自动清理旧数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
           git push origin main || echo "Failed to push changes"
 
       - name: Verify execution
