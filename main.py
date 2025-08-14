@@ -948,7 +948,8 @@ def crawl_akshare(etf_code):
     """
     try:
         # 从AkShare获取日线数据
-        df = ak.fund_etf_hist_sina(symbol=etf_code, period="daily", start_date="", end_date="")
+        # 移除无效的period参数
+        df = ak.fund_etf_hist_sina(symbol=etf_code, adjust="")
         if df.empty:
             logger.error(f"AkShare返回空数据 {etf_code}")
             return None
@@ -1063,7 +1064,7 @@ def crawl_sina_finance(etf_code):
         })
         
         # 转换数据类型
-        df['date'] = pd.to_datetime(df['date'])
+        df['date'] = pd.to_dat(df['date'])
         df['open'] = df['open'].astype(float)
         df['high'] = df['high'].astype(float)
         df['low'] = df['low'].astype(float)
@@ -1090,12 +1091,13 @@ def get_etf_data(etf_code, data_type='daily'):
         logger.info(f"从缓存加载{etf_code}数据")
         return cached_data
     
-    # 尝试主数据源(AkShare)
-    data = crawl_akshare(etf_code)
-    if data is not None and not data.empty:
-        logger.info(f"成功从AkShare爬取{etf_code}数据")
-        save_to_cache(etf_code, data, data_type)
-        return data
+    # 尝试主数据源(AkShare) - 仅用于日线数据
+    if data_type == 'daily':
+        data = crawl_akshare(etf_code)
+        if data is not None and not data.empty:
+            logger.info(f"成功从AkShare爬取{etf_code}日线数据")
+            save_to_cache(etf_code, data, data_type)
+            return data
     
     # 尝试备用数据源1(Baostock)
     data = crawl_baostock(etf_code)
@@ -1122,13 +1124,13 @@ def get_all_etf_list():
         DataFrame: ETF列表，包含代码和名称
     """
     try:
-        # 从AkShare获取ETF列表（主数据源）
+        # 从AkShare获取ETF列表（主数据源）- 使用新的接口
         logger.info("尝试从AkShare获取ETF列表...")
-        df = ak.fund_etf_category(symbol="ETF基金")
+        df = ak.fund_etf_spot_sina()
         if not df.empty:
             # 筛选仅保留ETF
-            etf_list = df[df['基金类型'] == 'ETF'].copy()
-            etf_list = etf_list[['基金代码', '基金简称']]
+            etf_list = df.copy()
+            etf_list = etf_list[['symbol', 'name']]
             etf_list.columns = ['code', 'name']
             logger.info(f"从AkShare成功获取 {len(etf_list)} 只ETF")
             return etf_list
