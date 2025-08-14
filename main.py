@@ -2176,9 +2176,9 @@ def cron_new_stock_info():
     # 推送新股申购信息
     success_subscriptions = push_new_stock_info()
     
-    # 如果新股申购信息推送成功，等待2分钟再推送新上市交易股票信息
+    # 如果新股申购信息推送成功，等待1分钟再推送新上市交易股票信息
     if success_subscriptions:
-        time.sleep(120)  # 等待2分钟
+        time.sleep(60)  # 等待1分钟
         
         # 推送新上市交易股票信息
         success_listings = push_listing_info()
