@@ -2553,6 +2553,13 @@ def cleanup_old_data():
 # ========== 任务执行入口 ==========
 
 def run_task(task):
+
+    logger.info(f"接收到的任务参数: {task}")
+    
+    # 添加获取环境变量的日志
+    env_task = os.getenv('TASK', '未设置')
+    logger.info(f"环境变量TASK的值: {env_task}")
+  
     """执行指定任务（用于GitHub Actions）"""
     logger.info(f"开始执行任务: {task}")
     
