@@ -1306,6 +1306,7 @@ def get_new_stock_subscriptions():
         logger.info("尝试从AkShare获取新股申购信息...")
         df = ak.stock_ipo_info()
         if not df.empty:
+            # 确保只返回当天的数据
             df = df[df['issue_date'] == today]
             if not df.empty:
                 return df[['code', 'name', 'price', 'max_purchase', 'issue_date']]
@@ -1458,11 +1459,10 @@ def get_test_new_stock_subscriptions():
     返回:
         DataFrame: 测试数据
     """
-    today = datetime.datetime.now().strftime('%Y-%m-%d')
-    new_stocks = get_new_stock_subscriptions()
-    
-    if not new_stocks.empty:
-        return new_stocks
+    # 尝试获取当天真实数据（用于定时任务）
+    today_stocks = get_new_stock_subscriptions()
+    if not today_stocks.empty:
+        return today_stocks
     
     # 回溯7天
     for i in range(1, 8):
@@ -1472,7 +1472,9 @@ def get_test_new_stock_subscriptions():
             logger.info(f"尝试从AkShare获取{date_str}的历史新股数据...")
             df = ak.stock_ipo_info()
             if not df.empty:
-                df = df[df['issue_date'] == f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"]
+                # 转换为日期格式
+                target_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+                df = df[df['issue_date'] == target_date]
                 if not df.empty:
                     return df[['code', 'name', 'price', 'max_purchase', 'issue_date']]
         except:
@@ -1540,11 +1542,10 @@ def get_test_new_stock_listings():
     返回:
         DataFrame: 测试数据
     """
-    today = datetime.datetime.now().strftime('%Y-%m-%d')
-    new_listings = get_new_stock_listings()
-    
-    if not new_listings.empty:
-        return new_listings
+    # 尝试获取当天真实数据（用于定时任务）
+    today_listings = get_new_stock_listings()
+    if not today_listings.empty:
+        return today_listings
     
     # 回溯7天
     for i in range(1, 8):
@@ -1554,7 +1555,9 @@ def get_test_new_stock_listings():
             logger.info(f"尝试从AkShare获取{date_str}的历史新上市数据...")
             df = ak.stock_ipo_info()
             if not df.empty:
-                df = df[df['list_date'] == f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"]
+                # 转换为日期格式
+                target_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+                df = df[df['list_date'] == target_date]
                 if not df.empty:
                     return df[['code', 'name', 'price', 'max_purchase', 'list_date']]
         except:
@@ -2379,36 +2382,32 @@ def test_new_stock():
     if new_stocks is None or new_stocks.empty:
         message = "近7天没有新股、新债、新债券可认购"
     else:
-        message = format_new_stock_subscriptions_message(new_stocks)
+        # 使用专用测试消息格式
+        message = "【测试新股信息】\n"
+        message += f"共发现{len(new_stocks)}只新股：\n"
+        for _, row in new_stocks.iterrows():
+            message += f"股票代码：{row['code']}\n"
+            message += f"股票名称：{row['name']}\n"
+            message += f"发行价格：{row.get('issue_price', 'N/A')}元\n"
+            message += f"申购上限：{row.get('max_purchase', 'N/A')}股\n"
+            message += f"申购日期：{row.get('issue_date', 'N/A')}\n"
+            message += "─" * 20 + "\n"
     
-    # 格式化消息
-    if test:
-        message = "【测试消息】\n" + message
+    # 添加测试标识
+    message = "【测试消息】\n" + message
     
     # 发送消息
     success = send_wecom_message(message)
     
-    # 如果新股申购信息推送成功，等待2分钟再推送新上市交易股票信息
-    if success:
-        time.sleep(120)  # 等待2分钟
-        
-        # 获取测试用的新上市交易股票信息
-        new_listings = get_test_new_stock_listings()
-        
-        # 推送新上市交易股票信息
-        if not new_listings is None and not new_listings.empty:
-            message = format_new_stock_listings_message(new_listings)
-            if test:
-                message = "【测试消息】\n" + message
-            send_wecom_message(message)
+    # 不需要等待2分钟推送新上市信息（手动测试只需新股信息）
     
     # 检查推送结果
     if success:
-        logger.info("测试消息推送成功")
+        logger.info("测试新股信息推送成功")
         response = {"status": "success", "message": "Test new stocks sent"}
         return jsonify(response) if has_app_context() else response
     else:
-        logger.error("测试消息推送失败")
+        logger.error("测试新股信息推送失败")
         response = {"status": "error", "message": "Failed to send test new stocks"}
         return jsonify(response) if has_app_context() else response
 
@@ -2421,13 +2420,30 @@ def test_new_stock_listings():
     new_listings = get_test_new_stock_listings()
     
     # 推送新上市交易股票信息
-    if not new_listings is None and not new_listings.empty:
-        message = format_new_stock_listings_message(new_listings)
-        if test:
-            message = "【测试消息】\n" + message
-        send_wecom_message(message)
+    if new_listings is None or new_listings.empty:
+        message = "近7天没有新上市股票、可转债、债券"
+    else:
+        # 使用专用测试消息格式
+        message = "【测试新上市交易信息】\n"
+        message += f"共发现{len(new_listings)}只新上市股票：\n"
+        for _, row in new_listings.iterrows():
+            message += f"股票代码：{row['code']}\n"
+            message += f"股票名称：{row['name']}\n"
+            message += f"发行价格：{row.get('issue_price', 'N/A')}元\n"
+            message += f"申购上限：{row.get('max_purchase', 'N/A')}股\n"
+            message += f"上市日期：{row.get('listing_date', 'N/A')}\n"
+            message += "─" * 20 + "\n"
     
-    response = {"status": "success", "message": "Test new stock listings sent"}
+    # 添加测试标识
+    message = "【测试消息】\n" + message
+    
+    # 发送消息
+    success = send_wecom_message(message)
+    
+    if success:
+        response = {"status": "success", "message": "Test new stock listings sent"}
+    else:
+        response = {"status": "error", "message": "Failed to send test new stock listings"}
     return jsonify(response) if has_app_context() else response
 
 # ========== 新增：测试套利扫描 ==========
@@ -2455,7 +2471,7 @@ def test_arbitrage_scan():
         message += f"止损价格：{opportunity['stop_loss_price']:.4f}\n"
         message += "建议：立即买入，目标止盈，严格止损。"
         
-        send_wecom_message(_format_message(message, test=test))
+        success = send_wecom_message(_format_message(message, test=test))
         
         # 更新套利状态（仅测试模式）
         if test:
@@ -2469,11 +2485,11 @@ def test_arbitrage_scan():
                 opportunity['stop_loss_price']
             )
         
-        response = {"status": "success", "message": "Arbitrage opportunity found"}
+        logger.info("测试套利扫描成功")
+        return {"status": "success", "message": "Arbitrage opportunity found"}
     else:
-        response = {"status": "success", "message": "No arbitrage opportunity found"}
-    
-    return jsonify(response) if has_app_context() else response
+        logger.info("未发现套利机会")
+        return {"status": "success", "message": "No arbitrage opportunity found"}
 
 # ========== 辅助函数 ==========
 
@@ -2556,28 +2572,24 @@ def run_task(task):
             
             # 检查是否获取到新股数据
             if new_stocks is None or new_stocks.empty:
-                message = "近7天没有新股、新债、新债券可认购"
+                message = "【测试】近7天没有新股、新债、新债券可认购"
             else:
-                message = format_new_stock_subscriptions_message(new_stocks)
+                # 使用专用测试消息格式
+                message = "【测试新股信息】\n"
+                message += f"共发现{len(new_stocks)}只新股：\n"
+                for _, row in new_stocks.iterrows():
+                    message += f"股票代码：{row['code']}\n"
+                    message += f"股票名称：{row['name']}\n"
+                    message += f"发行价格：{row.get('issue_price', 'N/A')}元\n"
+                    message += f"申购上限：{row.get('max_purchase', 'N/A')}股\n"
+                    message += f"申购日期：{row.get('issue_date', 'N/A')}\n"
+                    message += "─" * 20 + "\n"
             
-            # 格式化消息
+            # 添加测试标识
             message = "【测试消息】\n" + message
             
             # 发送消息
             success = send_wecom_message(message)
-            
-            # 如果新股申购信息推送成功，等待2分钟再推送新上市交易股票信息
-            if success:
-                logger.info("新股申购信息测试推送成功，等待2分钟后推送新上市交易股票信息...")
-                time.sleep(120)  # 等待2分钟
-                
-                # 获取测试用的新上市交易股票信息
-                new_listings = get_test_new_stock_listings()
-                
-                # 推送新上市交易股票信息
-                if not new_listings is None and not new_listings.empty:
-                    message = "【测试消息】\n" + format_new_stock_listings_message(new_listings)
-                    send_wecom_message(message)
             
             if success:
                 logger.info("测试新股信息推送成功")
