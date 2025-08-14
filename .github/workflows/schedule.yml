@@ -26,7 +26,6 @@ on:
       task:
         description: '选择要执行的任务'
         required: true
-        # default: 'run_new_stock_info'
         type: choice
         options:
           - 'test_message'
@@ -79,7 +78,7 @@ jobs:
       
       - name: Run strategy
         env:
-          TASK: 'run_new_stock_info'
+          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'run_new_stock_info' }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
           TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
@@ -133,7 +132,7 @@ jobs:
       
       - name: Run strategy
         env:
-          TASK: 'push_strategy'
+          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'push_strategy' }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
           TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
@@ -186,7 +185,7 @@ jobs:
       
       - name: Run strategy
         env:
-          TASK: 'update_stock_pool'
+          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'update_stock_pool' }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
           TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
@@ -239,7 +238,7 @@ jobs:
       
       - name: Run strategy
         env:
-          TASK: 'crawl_daily'
+          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'crawl_daily' }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
           TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
@@ -292,7 +291,7 @@ jobs:
       
       - name: Run strategy
         env:
-          TASK: 'crawl_intraday'
+          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'crawl_intraday' }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
           TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
@@ -344,7 +343,7 @@ jobs:
       
       - name: Run strategy
         env:
-          TASK: 'test_arbitrage'
+          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'test_arbitrage' }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
           TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
@@ -396,7 +395,7 @@ jobs:
       
       - name: Run strategy
         env:
-          TASK: 'cleanup'
+          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'cleanup' }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
           TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
