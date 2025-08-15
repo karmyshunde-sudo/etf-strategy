@@ -957,7 +957,10 @@ def crawl_akshare(etf_code):
     try:
         # 从AkShare获取日线数据
         # 移除无效的period参数
-        df = ak.fund_etf_hist_sina(symbol=etf_code, adjust="")
+        df = ak.fund_etf_hist_sina(symbol=etf_code, period="daily", start_date="", end_date="")
+        df.rename(columns={'日期': 'date', '收盘价': 'close'}, inplace=True)
+        df['date'] = pd.to_datetime(df['date'])
+        return df
         if df.empty:
             logger.error(f"AkShare返回空数据 {etf_code}")
             return None
@@ -1134,7 +1137,9 @@ def get_all_etf_list():
     try:
         # 从AkShare获取ETF列表（主数据源）- 使用新的接口
         logger.info("尝试从AkShare获取ETF列表...")
-        df = ak.fund_etf_spot_sina()
+        df = ak.fund_etf_hist_sina(symbol="all")
+        etfs['code'] = etfs['基金代码'].apply(lambda x: f"sh.{x}" if x.startswith('5') else f"sz.{x}")
+        return etfs[['code', '基金名称']]
         if not df.empty:
             # 筛选仅保留ETF
             etf_list = df.copy()
