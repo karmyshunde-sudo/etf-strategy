@@ -28,9 +28,9 @@ on:
         required: true
         type: choice
         options:
-          - 'test_message'
-          - 'test_new_stock'
-          - 'test_stock_pool'
+          - 'test_message'      # 【T01】测试消息推送
+          - 'test_new_stock'    #【T07】测试新股信息 
+          - 'test_stock_pool'    # 新增此选项测试股票池推送 【T04】
           - 'test_execute'
           - 'test_reset'
           - 'test_arbitrage'
