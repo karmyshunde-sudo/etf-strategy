@@ -1075,7 +1075,7 @@ def crawl_sina_finance(etf_code):
         })
         
         # 转换数据类型
-        df['date'] = pd.to_dat(df['date'])
+        df['date'] = pd.to_dateime(df['date'])
         df['open'] = df['open'].astype(float)
         df['high'] = df['high'].astype(float)
         df['low'] = df['low'].astype(float)
@@ -1137,7 +1137,7 @@ def get_all_etf_list():
     try:
         # 从AkShare获取ETF列表（主数据源）- 使用新的接口
         logger.info("尝试从AkShare获取ETF列表...")
-        df = ak.fund_etf_hist_sina(symbol="all")
+        df = ak.fund_etf_hist_sina(symbol="etf")
         etfs['code'] = etfs['基金代码'].apply(lambda x: f"sh.{x}" if x.startswith('5') else f"sz.{x}")
         return etfs[['code', '基金名称']]
         if not df.empty:
