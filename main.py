@@ -2614,8 +2614,18 @@ def run_task(task):
             stock_pool = get_current_stock_pool()
             
             if stock_pool is None or stock_pool.empty:
-                logger.error("股票池为空，无法推送")
-                return {"status": "error", "message": "No stock pool available"}
+                logger.error("股票池为空，强制更新股票池")
+       
+                # 先强制更新股票池
+                update_stock_pool()
+                time.sleep(10)  # 等待更新完成
+                
+                # 再次获取当前股票池
+                stock_pool = get_current_stock_pool()
+
+                if stock_pool is None or stock_pool.empty:
+                    logger.error("股票池为空，无法推送")
+                    return {"status": "error", "message": "No stock pool available"}
             
             # 格式化消息
             message = "【测试消息】\n" + _format_stock_pool_message(stock_pool, test=True)
