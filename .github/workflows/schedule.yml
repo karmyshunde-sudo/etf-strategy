@@ -28,18 +28,19 @@ on:
         required: true
         type: choice
         options:
-          - 'test_message'      # 【T01】测试消息推送
-          - 'test_new_stock'    #【T07】测试新股信息 
-          - 'test_stock_pool'    # 新增此选项测试股票池推送 【T04】
-          - 'test_execute'
-          - 'test_reset'
-          - 'test_arbitrage'
-          - 'run_new_stock_info'
-          - 'push_strategy'
-          - 'update_stock_pool'
-          - 'crawl_daily'
-          - 'crawl_intraday'
-          - 'cleanup'
+          - 'test_message'      				#【T01】手动推送微信消息
+          - 'test_new_stock'    			#【T07】手动推送新股信息
+          - 'test_new_stock_listings'		#新增【T08】手动套利扫描
+          - 'test_stock_pool'    			#【T04】手动推送当前股票池
+          - 'test_execute'				#【T05】手动执行策略并推送结果
+          - 'test_reset'					#【T06】手动重置所有仓位（测试用）
+          - 'test_arbitrage'				#【T09】手动套利扫描
+          - 'run_new_stock_info'			#每日 9:35 新股信息推送
+          - 'push_strategy'				#计算策略信号并推送到企业微信
+          - 'update_stock_pool'			#每周五16:00北京时间更新ETF股票池（5只稳健仓 + 5只激进仓）
+          - 'crawl_daily'					#日线数据爬取任务
+          - 'crawl_intraday'				#盘中数据爬取任务
+          - 'cleanup'					#数据清理任务
 
 jobs:
   run-new-stock-info:
