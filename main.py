@@ -6,7 +6,6 @@
 
 【数据爬取模块说明】
   本文件同时负责从多个数据源获取ETF数据和新股信息
-  所有文件放在根目录，简化导入关系
   主数据源：AkShare
   备用数据源：Baostock、新浪财经
 
@@ -55,7 +54,8 @@
 1. 获取ETF数据：get_etf_data(etf_code, data_type='daily')
 2. 获取ETF列表：get_all_etf_list()
 3. 获取新股信息：get_new_stock_subscriptions()
-4. 测试用数据获取：get_test_new_stock_subscriptions()
+4. 测试用新股数据获取：get_test_new_stock_subscriptions()
+5. 测试用新上市股数据获取：get_test_new_stock_listings()
 
 【数据存储模块说明】
   本文件同时负责数据的存储和清理
