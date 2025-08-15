@@ -798,7 +798,7 @@ def update_stock_pool():
             logger.error("股票池生成失败，无法更新。")
             return None
         
-      logger.info("开始周五下午4点自动更新股票池流程")
+    logger.info("开始周五下午4点自动更新股票池流程")
      
     # 获取当前北京时间
     beijing_now = get_beijing_time()
