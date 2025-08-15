@@ -786,23 +786,31 @@ def log_trade(signal):
     logger.info(f"交易记录已保存: {signal['etf_name']} - {signal['action']}")
 
 def update_stock_pool():
-    """
-    更新ETF股票池（5只稳健仓 + 5只激进仓）
-    本函数应在每周五16:00北京时间运行
-    """
-    logger.info("开始股票池更新流程")
-    
+    #本函数应在每周五16:00北京时间运行
+    #更新ETF股票池（5只稳健仓 + 5只激进仓）
+    # 获取当前股票池
+    stock_pool = get_current_stock_pool()
+    if stock_pool is None or stock_pool.empty:
+        logger.error("股票池为空，计算策略必须要有股票池")    
+        # 生成新的股票池
+        stock_pool = generate_stock_pool()
+        if stock_pool is None or stock_pool.empty:
+            logger.error("股票池生成失败，无法更新。")
+            return None
+        
+      logger.info("开始周五下午4点自动更新股票池流程")
+     
     # 获取当前北京时间
     beijing_now = get_beijing_time()
     
     # 检查今天是否是周五
     if beijing_now.weekday() != 4:  # 周五是4（周一是0）
-        logger.info(f"今天是{beijing_now.strftime('%A')}，不是周五。跳过股票池更新。")
+        logger.info(f"今天是{beijing_now.strftime('%A')}，不是周五。跳过强制更新股票池。")
         return None
     
     # 检查时间是否在16:00之后
     if beijing_now.time() < datetime.time(16, 0):
-        logger.info(f"当前时间是{beijing_now.strftime('%H:%M')}，早于16:00。跳过股票池更新。")
+        logger.info(f"当前时间是{beijing_now.strftime('%H:%M')}，早于16:00。跳过强制更新股票池。")
         return None
     
     # 生成新的股票池
@@ -812,7 +820,7 @@ def update_stock_pool():
         logger.error("股票池生成失败，无法更新。")
         return None
     
-    logger.info(f"股票池更新成功。")
+    logger.info(f"股票池强制更新成功。")
     logger.info(f"选定{len(stock_pool[stock_pool['type'] == '稳健仓'])}只稳健ETF和{len(stock_pool[stock_pool['type'] == '激进仓'])}只激进ETF")
     
     return stock_pool
