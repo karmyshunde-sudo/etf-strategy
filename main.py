@@ -1802,45 +1802,48 @@ def scan_arbitrage_opportunities():
     for _, etf in etf_list.iterrows():
         etf_code = etf['code']
         etf_name = etf['name']
+
+        try:
+            # 获取ETF溢价率,修正：移除对shares模块的无效调用
+            premium_rate = calculate_premium_rate(etf_code)
         
-        # 获取ETF溢价率
-        premium_rate = calculate_premium_rate(etf_code)
-        
-        # 判断是否有套利机会
-        # 通常，溢价率过高（如>2%）或过低（如<-2%）可能存在套利机会
-        # 这里可以根据实际情况调整阈值
-        if premium_rate > 2.0 or premium_rate < -2.0:
-            # 获取ETF当前价格
-            etf_data = get_etf_data(etf_code, 'intraday')
-            if etf_data is None or etf_data.empty:
-                continue
-            etf_price = etf_data['close'].iloc[-1]
+            # 判断是否有套利机会
+            # 通常，溢价率过高（如>2%）或过低（如<-2%）可能存在套利机会
+            # 这里可以根据实际情况调整阈值
+            if abs(premium_rate) >= 2.0:
+                # 获取ETF当前价格
+                etf_data = get_etf_data(etf_code, 'intraday')
+                if etf_data is None or etf_data.empty:
+                    continue
+                etf_price = etf_data['close'].iloc[-1]
             
-            # 估算ETF净值
-            nav = estimate_etf_nav(etf_code)
-            if nav is None or nav == 0:
-                continue
+                # 估算ETF净值
+                nav = estimate_etf_nav(etf_code)
+                if nav is None or nav == 0:
+                    continue
             
-            # 计算止盈目标价格和止损价格
-            # 止盈目标：溢价率回归到0%附近
-            if premium_rate > 0:
-                # 溢价情况：ETF价格高于净值，预期价格下跌
-                target_price = nav * 1.005  # 回归到0.5%溢价
-                stop_loss_price = etf_price * 1.02  # 溢价扩大2%
-            else:
-                # 折价情况：ETF价格低于净值，预期价格上涨
-                target_price = nav * 0.995  # 回归到-0.5%折价
-                stop_loss_price = etf_price * 0.98  # 折价扩大2%
+                # 计算止盈目标价格和止损价格
+                # 止盈目标：溢价率回归到0%附近
+                if premium_rate > 0.1:
+                    # 溢价情况：ETF价格高于净值，预期价格下跌
+                    target_price = nav * 1.005  # 回归到0.5%溢价
+                    stop_loss_price = etf_price * 1.02  # 溢价扩大2%
+                else:
+                    # 折价情况：ETF价格低于净值，预期价格上涨
+                    target_price = nav * 0.995  # 回归到-0.5%折价
+                    stop_loss_price = etf_price * 0.98  # 折价扩大2%
             
-            opportunities.append({
-                "etf_code": etf_code,
-                "etf_name": etf_name,
-                "premium_rate": premium_rate,
-                "current_price": etf_price,
-                "nav": nav,
-                "target_price": target_price,
-                "stop_loss_price": stop_loss_price
-            })
+                opportunities.append({
+                    "etf_code": etf_code,
+                    "etf_name": etf_name,
+                    "premium_rate": premium_rate,
+                    "current_price": etf_price,
+                    "nav": nav,
+                    "target_price": target_price,
+                    "stop_loss_price": stop_loss_price
+                  })
+        except Exception as e:
+            logger.error(f"处理ETF {etf_code} 时出错: {str(e)}")
     
     if opportunities:
         logger.info(f"发现 {len(opportunities)} 个套利机会")
