@@ -41,6 +41,7 @@ on:
           - 'crawl_daily'					#日线数据爬取任务
           - 'crawl_intraday'				#盘中数据爬取任务
           - 'cleanup'					#数据清理任务
+          - 'arbitrage-scan'  # 新增定时套利扫描
 
 jobs:
   run-new-stock-info:
