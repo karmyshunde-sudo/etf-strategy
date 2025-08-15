@@ -12,7 +12,7 @@
    - STOCK_POOL_DIR: 股票池存储目录
    - TRADE_LOG_DIR: 交易流水存储目录
    - ERROR_LOG_DIR: 错误日志存储目录
-   - NEW_STOCK_DATA_DIR: 新股数据存储目录
+   - NEW_STOCK_DIR: 新股数据存储目录  # 修正：移除"DATA"，与main.py保持一致
    - ARBITRAGE_DIR: 套利数据存储目录
 
 2. 新股信息标记文件：
@@ -40,15 +40,16 @@
    - LOG_FILE: 日志文件路径
 
 【修复说明】
-1. 移除了循环导入问题：
-   - 删除了错误的 "from config import Config" 语句
-   - 保持原有配置逻辑不变
-   - 仅修复导入错误，不改变任何业务逻辑
+1. 修复了NEW_STOCK_DIR属性缺失问题：
+   - 将NEW_STOCK_DATA_DIR重命名为NEW_STOCK_DIR，与main.py中的引用保持一致
+   - 这是导致cleanup任务失败的根本原因
 
-2. 修复方式：
-   - 其他文件中使用Config的地方改为函数内部动态导入
-   - 例如：在需要Config的函数中添加 "from config import Config"
-   - 避免模块级导入导致的循环依赖
+2. 保持命名风格一致性：
+   - 所有数据目录属性现在都采用统一命名风格（没有额外的"DATA"）
+   - 例如：RAW_DATA_DIR, STOCK_POOL_DIR, NEW_STOCK_DIR
+
+3. 确保目录初始化正确：
+   - 更新了目录初始化列表，使用正确的NEW_STOCK_DIR
 
 【使用说明】
 1. 访问配置参数：Config.RAW_DATA_DIR
@@ -76,8 +77,8 @@ class Config:
     # 错误日志存储目录
     ERROR_LOG_DIR = os.path.join(BASE_DIR, 'data', 'error_log')
     
-    # 新股数据存储目录
-    NEW_STOCK_DATA_DIR = os.path.join(BASE_DIR, 'data', 'new_stock')
+    # 新股数据存储目录（修正：与main.py保持一致，移除"DATA"）
+    NEW_STOCK_DIR = os.path.join(BASE_DIR, 'data', 'new_stock')
     
     # 套利数据存储目录
     ARBITRAGE_DIR = os.path.join(BASE_DIR, 'data', 'arbitrage')
@@ -96,7 +97,7 @@ class Config:
     
     # 确保所有目录存在
     for directory in [RAW_DATA_DIR, STOCK_POOL_DIR, TRADE_LOG_DIR, 
-                     ERROR_LOG_DIR, NEW_STOCK_DATA_DIR, ARBITRAGE_DIR]:
+                     ERROR_LOG_DIR, NEW_STOCK_DIR, ARBITRAGE_DIR]:
         os.makedirs(directory, exist_ok=True)
     
     # 企业微信webhook地址（从环境变量获取）
@@ -137,6 +138,6 @@ class Config:
         """初始化所有数据目录"""
         # 遍历所有目录配置
         for directory in [cls.RAW_DATA_DIR, cls.STOCK_POOL_DIR, cls.TRADE_LOG_DIR, 
-                         cls.ERROR_LOG_DIR, cls.NEW_STOCK_DATA_DIR, cls.ARBITRAGE_DIR]:
+                         cls.ERROR_LOG_DIR, cls.NEW_STOCK_DIR, cls.ARBITRAGE_DIR]:
             # 创建目录（如果不存在）
             os.makedirs(directory, exist_ok=True)
