@@ -92,7 +92,7 @@ class Config:
     ARBITRAGE_STATUS_FILE = os.path.join(BASE_DIR, 'data', 'arbitrage_status.json')
     
     # 数据保留天数
-    OTHER_DATA_RETENTION_DAYS = 30
+    OTHER_DATA_RETENTION_DAYS = 365
     
     # 确保所有目录存在
     for directory in [RAW_DATA_DIR, STOCK_POOL_DIR, TRADE_LOG_DIR, 
@@ -103,7 +103,7 @@ class Config:
     WECOM_WEBHOOK = os.getenv('WECOM_WEBHOOK', '')
     
     # 消息底部附加信息
-    MESSAGE_FOOTER = "【鱼盆ETF投资量化系统】全自动决策 | 无需人工干预 | 风险提示：市场有风险，投资需谨慎"
+    MESSAGE_FOOTER = "【鱼盆ETF投资量化系统】全自动决策 | 无需人工干预 | 版本号250815.10.02"
     
     # 定时任务验证密钥（从环境变量获取）
     CRON_SECRET = os.getenv('CRON_SECRET', 'default-secret')
