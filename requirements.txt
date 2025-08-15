@@ -1,10 +1,10 @@
 flask==2.3.2
-pandas
 requests
 beautifulsoup4
 python-dotenv
-akshare
 baostock
 tushare
 pytz
 numpy
+akshare>=0.9.8
+pandas>=1.5.3
