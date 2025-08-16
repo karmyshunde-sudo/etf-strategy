@@ -1333,9 +1333,9 @@ def get_new_stock_subscriptions():
         df = ak.stock_ipo_info()
         if not df.empty:
             # 确保只返回当天的数据
-            df = df[df['issue_date'] == today]
+            df = df[df['publish_date'] == today]
             if not df.empty:
-                return df[['code', 'name', 'price', 'max_purchase', 'issue_date']]
+                return df[['code', 'name', 'price', 'max_purchase', 'publish_date']]
         logger.warning("AkShare返回空数据，尝试备用数据源...")
     except Exception as e:
         logger.error(f"AkShare获取新股申购信息失败: {str(e)}")
@@ -1359,7 +1359,7 @@ def get_new_stock_subscriptions():
                     'code_name': 'name',
                     'price': 'issue_price',
                     'max_purchase': 'max_purchase',
-                    'ipoDate': 'issue_date'
+                    'ipoDate': 'publish_date'
                 })
         logger.warning("Baostock返回空数据，尝试下一个数据源...")
     except Exception as e:
@@ -1379,15 +1379,15 @@ def get_new_stock_subscriptions():
             name = item.get('name', '')
             issue_price = item.get('price', '')
             max_purchase = item.get('limit', '')
-            issue_date = item.get('issue_date', '')
+            publish_date = item.get('publish_date', '')
             
-            if issue_date == today:
+            if publish_date == today:
                 new_stocks.append({
                     'code': code,
                     'name': name,
                     'issue_price': issue_price,
                     'max_purchase': max_purchase,
-                    'issue_date': issue_date
+                    'publish_date': publish_date
                 })
         
         if new_stocks:
@@ -1500,9 +1500,9 @@ def get_test_new_stock_subscriptions():
             if not df.empty:
                 # 转换为日期格式
                 target_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
-                df = df[df['issue_date'] == target_date]
+                df = df[df['publish_date'] == target_date]
                 if not df.empty:
-                    return df[['code', 'name', 'price', 'max_purchase', 'issue_date']]
+                    return df[['code', 'name', 'price', 'max_purchase', 'publish_date']]
         except:
             pass
         
@@ -1525,7 +1525,7 @@ def get_test_new_stock_subscriptions():
                         'code_name': 'name',
                         'price': 'issue_price',
                         'max_purchase': 'max_purchase',
-                        'ipoDate': 'issue_date'
+                        'ipoDate': 'publish_date'
                     })
         except:
             pass
@@ -1544,15 +1544,15 @@ def get_test_new_stock_subscriptions():
                 name = item.get('name', '')
                 issue_price = item.get('price', '')
                 max_purchase = item.get('limit', '')
-                issue_date = item.get('issue_date', '')
+                publish_date = item.get('publish_date', '')
                 
-                if issue_date == f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}":
+                if publish_date == f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}":
                     new_stocks.append({
                         'code': code,
                         'name': name,
                         'issue_price': issue_price,
                         'max_purchase': max_purchase,
-                        'issue_date': issue_date
+                        'publish_date': publish_date
                     })
             
             if new_stocks:
@@ -1664,14 +1664,14 @@ def format_new_stock_subscriptions_message(new_stocks):
         name = row.get('name', '')
         issue_price = row.get('issue_price', '')
         max_purchase = row.get('max_purchase', '')
-        issue_date = row.get('issue_date', '')
+        publish_date = row.get('publish_date', '')
         
         # 格式化消息 - 仅包含新股基本信息
         message += f"\n股票代码：{code}\n"
         message += f"股票名称：{name}\n"
         message += f"发行价格：{issue_price}元\n"
         message += f"申购上限：{max_purchase}股\n"
-        message += f"申购日期：{issue_date}\n"
+        message += f"申购日期：{publish_date}\n"
         message += "─" * 20
     
     return message
@@ -2495,7 +2495,7 @@ def test_new_stock():
             message += f"股票名称：{row['name']}\n"
             message += f"发行价格：{row.get('issue_price', 'N/A')}元\n"
             message += f"申购上限：{row.get('max_purchase', 'N/A')}股\n"
-            message += f"申购日期：{row.get('issue_date', 'N/A')}\n"
+            message += f"申购日期：{row.get('publish_date', 'N/A')}\n"
             message += "─" * 20 + "\n"
     
     # 添加测试标识
@@ -2694,7 +2694,7 @@ def run_task(task):
                     message += f"股票名称：{row['name']}\n"
                     message += f"发行价格：{row.get('issue_price', 'N/A')}元\n"
                     message += f"申购上限：{row.get('max_purchase', 'N/A')}股\n"
-                    message += f"申购日期：{row.get('issue_date', 'N/A')}\n"
+                    message += f"申购日期：{row.get('publish_date', 'N/A')}\n"
                     message += "─" * 20 + "\n"
             
             # 添加测试标识
