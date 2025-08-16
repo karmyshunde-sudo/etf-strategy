@@ -1502,11 +1502,11 @@ def get_test_new_stock_subscriptions():
         try:
             # 尝试AkShare（主数据源）
             logger.info(f"尝试从AkShare获取{date_str}的历史新股数据...")
-            df = ak.stock_ipo_info()
+            df = ak.stock_xgsglb_em()
             if not df.empty:
                 # 转换为日期格式
                 target_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
-                df = df[df['publish_date'] == target_date]
+                df = df[df['申购日期'] == target_date]
                 if not df.empty:
                     return df[['申购代码', '股票简称', '发行价格', '申购上限', '申购日期']]
         except:
@@ -1585,11 +1585,11 @@ def get_test_new_stock_listings():
         try:
             # 尝试AkShare（主数据源）
             logger.info(f"尝试从AkShare获取{date_str}的历史新上市数据...")
-            df = ak.stock_ipo_info()
+            df = ak.stock_xgsglb_em()
             if not df.empty:
                 # 转换为日期格式
                 target_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
-                df = df[df['list_date'] == target_date]
+                df = df[df['上市日期'] == target_date]
                 if not df.empty:
                     return df[['股票代码', '股票简称', '发行价格', '申购上限', '上市日期']]
         except:
@@ -2497,8 +2497,8 @@ def test_new_stock():
         message = "【测试新股信息】\n"
         message += f"共发现{len(new_stocks)}只新股：\n"
         for _, row in new_stocks.iterrows():
-            message += f"股票代码：{row['code']}\n"
-            message += f"股票名称：{row['name']}\n"
+            message += f"申购代码：{row['code']}\n"
+            message += f"股票简称：{row['name']}\n"
             message += f"发行价格：{row.get('issue_price', 'N/A')}元\n"
             message += f"申购上限：{row.get('max_purchase', 'N/A')}股\n"
             message += f"申购日期：{row.get('publish_date', 'N/A')}\n"
@@ -2539,7 +2539,7 @@ def test_new_stock_listings():
         message += f"共发现{len(new_listings)}只新上市股票：\n"
         for _, row in new_listings.iterrows():
             message += f"股票代码：{row['code']}\n"
-            message += f"股票名称：{row['name']}\n"
+            message += f"股票简称：{row['name']}\n"
             message += f"发行价格：{row.get('issue_price', 'N/A')}元\n"
             message += f"申购上限：{row.get('max_purchase', 'N/A')}股\n"
             message += f"上市日期：{row.get('listing_date', 'N/A')}\n"
