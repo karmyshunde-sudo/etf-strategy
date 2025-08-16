@@ -1498,19 +1498,19 @@ def get_test_new_stock_subscriptions():
     
     # 回溯7天
     for i in range(1, 8):
-        date_str = (datetime.datetime.now() - datetime.timedelta(days=i)).strftime('%Y%m%d')
+        date_str = (datetime.datetime.now() - datetime.timedelta(days=i)).strftime('%Y-%m-%d')
         try:
             # 尝试AkShare（主数据源）
             logger.info(f"尝试从AkShare获取{date_str}的历史新股数据...")
             df = ak.stock_xgsglb_em()
             if not df.empty:
                 # 转换为日期格式
-                target_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+                # target_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
                 df = df[df['申购日期'] == target_date]
                 if not df.empty:
                     return df[['申购代码', '股票简称', '发行价格', '申购上限', '申购日期']]
-        except:
-            pass
+        except Exception as e:
+            logger.error(f"AkShare获取{date_str}数据失败: {str(e)}")
         
         # 尝试Baostock（备用数据源1）
         try:
@@ -1533,8 +1533,8 @@ def get_test_new_stock_subscriptions():
                         'max_purchase': 'max_purchase',
                         'ipoDate': 'publish_date'
                     })
-        except:
-            pass
+        except Exception as e:
+            logger.error(f"AkShare获取{date_str}数据失败: {str(e)}")
         
         # 尝试新浪财经（备用数据源2）
         try:
@@ -1581,14 +1581,14 @@ def get_test_new_stock_listings():
     
     # 回溯7天
     for i in range(1, 8):
-        date_str = (datetime.datetime.now() - datetime.timedelta(days=i)).strftime('%Y%m%d')
+        date_str = (datetime.datetime.now() - datetime.timedelta(days=i)).strftime('%Y-%m-%d')
         try:
             # 尝试AkShare（主数据源）
             logger.info(f"尝试从AkShare获取{date_str}的历史新上市数据...")
             df = ak.stock_xgsglb_em()
             if not df.empty:
                 # 转换为日期格式
-                target_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+                # target_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
                 df = df[df['上市日期'] == target_date]
                 if not df.empty:
                     return df[['股票代码', '股票简称', '发行价格', '申购上限', '上市日期']]
