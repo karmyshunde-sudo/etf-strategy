@@ -1397,7 +1397,7 @@ def get_new_stock_listings():
     返回:
         DataFrame: 当天新上市交易的新股信息
     """
-    today = datetime.datetime.now().strftime('%Y-%m-%d')
+    today = get_beijing_time().strftime('%Y-%m-%d')
     
     # 尝试AkShare（主数据源）
     try:
@@ -1696,9 +1696,47 @@ def format_new_stock_listings_message(new_listings):
     
     return message
 
-def is_new_stock_info_pushed():
-    """检查是否已经推送过新股信息"""
-    return os.path.exists(Config.NEW_STOCK_PUSHED_FLAG)
+def is_new_stock_info_pushed(target_date=None):
+    """
+    检查是否已经推送过新股信息，并返回推送日期
+    :param target_date: 需要比较的目标日期（datetime.date对象），默认为None
+    :return: 
+        - 文件不存在时返回 (None, False) 或 None
+        - 存在时返回文件中的日期
+        - 当提供target_date时，额外返回日期是否匹配的布尔值
+    """
+    flag_file = Config.NEW_STOCK_PUSHED_FLAG
+    
+    if not os.path.exists(flag_file):
+        return (None, False) if target_date is not None else None
+    
+    try:
+        # 读取文件内容
+        with open(flag_file, 'r') as f:
+            content = f.read().strip()
+            
+        # 尝试解析日期
+        for fmt in ("%Y-%m-%d", "%Y%m%d", "%d/%m/%Y", "%m/%d/%Y"):
+            try:
+                file_date = datetime.strptime(content, fmt).date()
+                break
+            except ValueError:
+                continue
+        else:
+            raise ValueError(f"无法解析日期: {content}")
+            
+        # 根据是否提供目标日期返回不同结果
+        if target_date is None:
+            return file_date
+        else:
+            # 确保target_date是日期类型
+            if isinstance(target_date, datetime):
+                target_date = target_date.date()
+            return file_date, (file_date == target_date)
+            
+    except Exception as e:
+        print(f"读取推送标记文件错误: {str(e)}")
+        return (None, False) if target_date is not None else None
 
 def mark_new_stock_info_pushed():
     """标记新股信息已推送"""
@@ -1710,9 +1748,47 @@ def clear_new_stock_pushed_flag():
     if os.path.exists(Config.NEW_STOCK_PUSHED_FLAG):
         os.remove(Config.NEW_STOCK_PUSHED_FLAG)
 
-def is_listing_info_pushed():
-    """检查是否已经推送过新上市交易股票信息"""
-    return os.path.exists(Config.LISTING_PUSHED_FLAG)
+def is_listing_info_pushed(target_date=None):
+    """
+    检查是否已经推送过新上市交易股票信息，并返回推送日期
+    :param target_date: 需要比较的目标日期（datetime.date对象），默认为None
+    :return: 
+        - 文件不存在时返回 (None, False) 或 None
+        - 存在时返回文件中的日期
+        - 当提供target_date时，额外返回日期是否匹配的布尔值
+    """
+    flag_file = Config.LISTING_PUSHED_FLAG
+    
+    if not os.path.exists(flag_file):
+        return (None, False) if target_date is not None else None
+    
+    try:
+        # 读取文件内容
+        with open(flag_file, 'r') as f:
+            content = f.read().strip()
+            
+        # 尝试解析日期
+        for fmt in ("%Y-%m-%d", "%Y%m%d", "%d/%m/%Y", "%m/%d/%Y"):
+            try:
+                file_date = datetime.strptime(content, fmt).date()
+                break
+            except ValueError:
+                continue
+        else:
+            raise ValueError(f"无法解析日期: {content}")
+            
+        # 根据是否提供目标日期返回不同结果
+        if target_date is None:
+            return file_date
+        else:
+            # 确保target_date是日期类型
+            if isinstance(target_date, datetime):
+                target_date = target_date.date()
+            return file_date, (file_date == target_date)
+            
+    except Exception as e:
+        print(f"读取推送标记文件错误: {str(e)}")
+        return (None, False) if target_date is not None else None
 
 def mark_listing_info_pushed():
     """标记新上市交易股票信息已推送"""
@@ -1869,13 +1945,13 @@ def retry_push():
         return False
     
     # 检查新股信息是否已推送
-    if not is_new_stock_info_pushed():
+    if not is_new_stock_info_pushed(target_date=now):
         logger.info("新股信息未推送，尝试重试")
         push_new_stock_info()
         return True
     
     # 检查新上市交易股票信息是否已推送
-    if not is_listing_info_pushed():
+    if not is_listing_info_pushed(target_date=now):
         logger.info("新上市交易股票信息未推送，尝试重试")
         push_listing_info()
         return True
