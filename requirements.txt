@@ -6,5 +6,5 @@ baostock
 tushare
 pytz
 numpy
-akshare==25.1.1
+akshare==1.17.35
 pandas>=1.5.3
