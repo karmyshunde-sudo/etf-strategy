@@ -1047,21 +1047,32 @@ def crawl_sina_finance(etf_code):
         DataFrame: ETF数据或None（如果失败）
     """
     try:
-        # 构建新浪财经API URL
-        sina_url = f"http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol=sh{etf_code if etf_code.startswith('5') else etf_code}&scale=240&ma=no&datalen=100"
-        if etf_code.startswith('1') or etf_code.startswith('5'):
-            sina_url = sina_url.replace('sh', 'sh')
+       # 1. 修正交易所前缀处理
+        if etf_code.startswith('5'):
+            exchange_prefix = 'sh'
+        elif etf_code.startswith('1'):
+            exchange_prefix = 'sz'
         else:
-            sina_url = sina_url.replace('sh', 'sz')
+            exchange_prefix = ''
+            
+        # 2. 正确构建URL
+        full_code = f"{exchange_prefix}{etf_code}"
+        sina_url = f"http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={full_code}&scale=240&ma=no&datalen=100"
         
+        # 3. 添加User-Agent头避免被拒绝
+        response = requests.get(sina_url, timeout=15, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        })
+      
         # 获取数据
         response = requests.get(sina_url, timeout=15)
         response.raise_for_status()
         
         # 解析JSON响应
         data = response.json()
-        if not data:
+        if not data or 'data' not in data:
             return None
+        kline_data = data['data']
         
         # 转换为DataFrame
         df = pd.DataFrame(data)
