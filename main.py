@@ -1520,11 +1520,14 @@ def get_test_new_stock_subscriptions():
             logger.info(f"从{ak_source}获取{date_str}新股数据")
             return ak_data.rename(columns=STANDARD_COLUMNS)
         
+        """
+        接口没有申购日期，所以不用这个数据源
         # 尝试Baostock（备用数据源1）
         bs_data, bs_source = try_baostock_source(date_str)
         if not bs_data.empty:
             logger.info(f"从{bs_source}获取{date_str}新股数据")
             return bs_data.rename(columns=STANDARD_COLUMNS)
+        """
         
         # 尝试新浪财经（备用数据源2）
         sina_data, sina_source = try_sina_source(date_str)
