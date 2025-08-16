@@ -1339,8 +1339,8 @@ def get_new_stock_subscriptions():
                 # 按需提取字段，这里根据你之前返回的字段名示例，选取常用字段
                 return df[['股票代码', '股票简称', '发行价格', '申购上限', '申购日期']]
             logger.warning("AkShare返回空数据（当天无新股可认购或接口返回无匹配），尝试备用数据源...")
-        except Exception as e:
-            logger.error(f"AkShare获取新股认购信息失败: {str(e)}")
+            except Exception as e:
+                    logger.error(f"AkShare获取新股认购信息失败: {str(e)}")
     
     # 尝试Baostock（备用数据源1）
     try:
