@@ -1505,7 +1505,7 @@ def get_test_new_stock_subscriptions():
             df = ak.stock_xgsglb_em()
             if not df.empty:
                 # 转换为日期格式
-                # target_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+                target_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
                 df = df[df['申购日期'] == target_date]
                 if not df.empty:
                     return df[['申购代码', '股票简称', '发行价格', '申购上限', '申购日期']]
@@ -1588,7 +1588,7 @@ def get_test_new_stock_listings():
             df = ak.stock_xgsglb_em()
             if not df.empty:
                 # 转换为日期格式
-                # target_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+                target_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
                 df = df[df['上市日期'] == target_date]
                 if not df.empty:
                     return df[['股票代码', '股票简称', '发行价格', '申购上限', '上市日期']]
