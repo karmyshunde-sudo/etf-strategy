@@ -1352,23 +1352,25 @@ def get_new_stock_subscriptions():
         if login_result.error_code != '0':
             raise Exception("Baostock登录失败")
         
-        rs = bs.query_new_stocks()
-        df = rs.get_data()
-        bs.logout()
+        rs = bs.query_stock_basic()
+        if rs.error_code != '0':
+            raise Exception(f"Baostock error: {rs.error_msg}")
         
-        if not df.empty:
-            df = df[df['ipoDate'] == today]
-            if not df.empty:
-                return df[['code', 'code_name', 'price', 'max_purchase', 'ipoDate']].rename(columns={
-                    'code': 'code',
-                    'code_name': 'name',
-                    'price': 'issue_price',
-                    'max_purchase': 'max_purchase',
-                    'ipoDate': 'publish_date'
-                })
-        logger.warning("Baostock返回空数据，尝试下一个数据源...")
+        # 转换为DataFrame并筛选新股
+        data_list = []
+        while rs.next():
+            data_list.append(rs.get_row_data())
+        df = pd.DataFrame(data_list, columns=rs.fields)
+        
+        # 筛选今日可申购新股（ipoDate=today）
+        new_stocks = df[df['ipoDate'] == today][['code', 'code_name', 'ipoDate']]
+        return new_stocks.rename(columns={'code_name': 'name'})
+    
     except Exception as e:
-        logger.error(f"Baostock获取新股申购信息失败: {str(e)}")
+        logger.error(f"Baostock新股获取失败: {str(e)}")
+        return pd.DataFrame()
+    finally:
+        bs.logout()  # 确保登出
     
     # 尝试新浪财经（备用数据源2）
     try:
@@ -1499,8 +1501,8 @@ def get_test_new_stock_subscriptions():
     if not today_stocks.empty:
         return today_stocks
     
-    # 回溯7天
-    for i in range(1, 8):
+    # 回溯21天
+    for i in range(1, 22):
         date_str = (datetime.datetime.now() - datetime.timedelta(days=i)).strftime('%Y-%m-%d')
         try:
             # 尝试AkShare（主数据源）
@@ -1522,22 +1524,25 @@ def get_test_new_stock_subscriptions():
             if login_result.error_code != '0':
                 raise Exception("Baostock登录失败")
             
-            rs = bs.query_new_stocks()
-            df = rs.get_data()
-            bs.logout()
-            
-            if not df.empty:
-                df = df[df['ipoDate'] == date_str]
-                if not df.empty:
-                    return df[['申购代码', '股票简称', '发行价格', '申购上限', '申购日期']].rename(columns={
-                        'code': 'code',
-                        'code_name': 'name',
-                        'price': 'issue_price',
-                        'max_purchase': 'max_purchase',
-                        'ipoDate': 'publish_date'
-                    })
+            rs = bs.query_stock_basic()
+            if rs.error_code != '0':
+                raise Exception(f"Baostock error: {rs.error_msg}")
+        
+            # 转换为DataFrame并筛选新股
+            data_list = []
+            while rs.next():
+                data_list.append(rs.get_row_data())
+            df = pd.DataFrame(data_list, columns=rs.fields)
+        
+            # 筛选回溯日期可申购新股（ipoDate=date_str）
+            new_stocks = df[df['ipoDate'] == date_str][['code', 'code_name', 'ipoDate']]
+            return new_stocks.rename(columns={'code_name': 'name'})
+    
         except Exception as e:
-            logger.error(f"AkShare获取{date_str}数据失败: {str(e)}")
+            logger.error(f"Baostock新股获取失败: {str(e)}")
+            return pd.DataFrame()
+        finally:
+            bs.logout()  # 确保登出
         
         # 尝试新浪财经（备用数据源2）
         try:
@@ -1582,8 +1587,8 @@ def get_test_new_stock_listings():
     if not today_listings.empty:
         return today_listings
     
-    # 回溯7天
-    for i in range(1, 8):
+    # 回溯21天
+    for i in range(1, 22):
         date_str = (datetime.datetime.now() - datetime.timedelta(days=i)).strftime('%Y-%m-%d')
         try:
             # 尝试AkShare（主数据源）
