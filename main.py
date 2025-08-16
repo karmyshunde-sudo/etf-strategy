@@ -1326,19 +1326,21 @@ def get_new_stock_subscriptions():
         DataFrame: 当天可申购的新股信息
     """
     today = datetime.datetime.now().strftime('%Y-%m-%d')
-    
+
     # 尝试AkShare（主数据源）
     try:
-        logger.info("尝试从AkShare获取新股申购信息...")
-        df = ak.stock_ipo_info()
+        logger.info("尝试从AkShare获取新股认购信息...")
+        # 调用 stock_xgsglb_em 接口，可根据需要设置 symbol 参数，这里先取全部股票
+        df = ak.stock_xgsglb_em(symbol="全部股票")  
         if not df.empty:
-            # 确保只返回当天的数据
-            df = df[df['publish_date'] == today]
+            # 假设返回数据里 '申购日期' 字段对应申购日期，需和 today 匹配
+            df = df[df['申购日期'] == today]  
             if not df.empty:
-                return df[['code', 'name', 'price', 'max_purchase', 'publish_date']]
-        logger.warning("AkShare返回空数据，尝试备用数据源...")
-    except Exception as e:
-        logger.error(f"AkShare获取新股申购信息失败: {str(e)}")
+                # 按需提取字段，这里根据你之前返回的字段名示例，选取常用字段
+                return df[['股票代码', '股票简称', '发行价格', '申购上限', '申购日期']]
+            logger.warning("AkShare返回空数据（当天无新股可认购或接口返回无匹配），尝试备用数据源...")
+        except Exception as e:
+            logger.error(f"AkShare获取新股认购信息失败: {str(e)}")
     
     # 尝试Baostock（备用数据源1）
     try:
@@ -1375,11 +1377,11 @@ def get_new_stock_subscriptions():
         
         new_stocks = []
         for item in data:
-            code = item.get('symbol', '')
-            name = item.get('name', '')
-            issue_price = item.get('price', '')
-            max_purchase = item.get('limit', '')
-            publish_date = item.get('publish_date', '')
+            code = item.get('申购代码', '')
+            name = item.get('股票简称', '')
+            issue_price = item.get('发行价格', '')
+            max_purchase = item.get('申购上限', '')
+            publish_date = item.get('申购日期', '')
             
             if publish_date == today:
                 new_stocks.append({
@@ -1411,14 +1413,18 @@ def get_new_stock_listings():
     today = get_beijing_time().strftime('%Y-%m-%d')
     
     # 尝试AkShare（主数据源）
+    # 尝试AkShare（主数据源，使用 stock_xgsglb_em 接口）
     try:
         logger.info("尝试从AkShare获取新上市交易股票信息...")
-        df = ak.stock_ipo_info()
+        # 调用 stock_xgsglb_em 接口，可根据需要设置 symbol 参数，这里先取全部股票
+        df = ak.stock_xgsglb_em(symbol="全部股票")  
         if not df.empty:
-            df = df[df['list_date'] == today]
+            # 假设返回数据里 '上市日期' 字段对应上市日期，需和 today 匹配
+            df = df[df['上市日期'] == today]  
             if not df.empty:
-                return df[['code', 'name', 'price', 'max_purchase', 'list_date']]
-        logger.warning("AkShare返回空数据，尝试备用数据源...")
+                # 按需提取字段，这里根据你之前返回的字段名示例，选取常用字段
+                return df[['股票代码', '股票简称', '发行价格',  '上市日期']]
+        logger.warning("AkShare返回空数据（当天无新股或接口返回无匹配），尝试备用数据源...")
     except Exception as e:
         logger.error(f"AkShare获取新上市交易股票信息失败: {str(e)}")
     
@@ -1502,7 +1508,7 @@ def get_test_new_stock_subscriptions():
                 target_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
                 df = df[df['publish_date'] == target_date]
                 if not df.empty:
-                    return df[['code', 'name', 'price', 'max_purchase', 'publish_date']]
+                    return df[['申购代码', '股票简称', '发行价格', '申购上限', '申购日期']]
         except:
             pass
         
@@ -1520,7 +1526,7 @@ def get_test_new_stock_subscriptions():
             if not df.empty:
                 df = df[df['ipoDate'] == date_str]
                 if not df.empty:
-                    return df[['code', 'code_name', 'price', 'max_purchase', 'ipoDate']].rename(columns={
+                    return df[['申购代码', '股票简称', '发行价格', '申购上限', '申购日期']].rename(columns={
                         'code': 'code',
                         'code_name': 'name',
                         'price': 'issue_price',
@@ -1540,11 +1546,11 @@ def get_test_new_stock_subscriptions():
             
             new_stocks = []
             for item in data:
-                code = item.get('symbol', '')
-                name = item.get('name', '')
-                issue_price = item.get('price', '')
-                max_purchase = item.get('limit', '')
-                publish_date = item.get('publish_date', '')
+                code = item.get('申购代码', '')
+                name = item.get('股票简称', '')
+                issue_price = item.get('发行价格', '')
+                max_purchase = item.get('申购上限', '')
+                publish_date = item.get('申购上限', '')
                 
                 if publish_date == f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}":
                     new_stocks.append({
@@ -1585,7 +1591,7 @@ def get_test_new_stock_listings():
                 target_date = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
                 df = df[df['list_date'] == target_date]
                 if not df.empty:
-                    return df[['code', 'name', 'price', 'max_purchase', 'list_date']]
+                    return df[['股票代码', '股票简称', '发行价格', '申购上限', '上市日期']]
         except:
             pass
         
@@ -1603,7 +1609,7 @@ def get_test_new_stock_listings():
             if not df.empty:
                 df = df[df['ipoDate'] == date_str]
                 if not df.empty:
-                    return df[['code', 'code_name', 'price', 'max_purchase', 'ipoDate']].rename(columns={
+                    return df[['股票代码', '股票简称', '发行价格', '申购上限', '上市日期']].rename(columns={
                         'code': 'code',
                         'code_name': 'name',
                         'price': 'issue_price',
@@ -1660,15 +1666,15 @@ def format_new_stock_subscriptions_message(new_stocks):
     message = "【今日新股申购信息】\n"
     for _, row in new_stocks.iterrows():
         # 确保只使用新股基本信息
-        code = row.get('code', '')
-        name = row.get('name', '')
-        issue_price = row.get('issue_price', '')
-        max_purchase = row.get('max_purchase', '')
-        publish_date = row.get('publish_date', '')
+        code = row.get('申购代码', '')
+        name = row.get('股票简称', '')
+        issue_price = row.get('发行价格', '')
+        max_purchase = row.get('申购上限', '')
+        publish_date = row.get('申购日期', '')
         
         # 格式化消息 - 仅包含新股基本信息
-        message += f"\n股票代码：{code}\n"
-        message += f"股票名称：{name}\n"
+        message += f"\n申购代码：{code}\n"
+        message += f"股票简称：{name}\n"
         message += f"发行价格：{issue_price}元\n"
         message += f"申购上限：{max_purchase}股\n"
         message += f"申购日期：{publish_date}\n"
@@ -1691,15 +1697,15 @@ def format_new_stock_listings_message(new_listings):
     message = "【近期新上市交易股票】\n"
     for _, row in new_listings.iterrows():
         # 确保只使用新上市交易股票基本信息
-        code = row.get('code', '')
-        name = row.get('name', '')
-        issue_price = row.get('issue_price', '')
-        max_purchase = row.get('max_purchase', '')
-        listing_date = row.get('listing_date', '')
+        code = row.get('股票代码', '')
+        name = row.get('股票简称', '')
+        issue_price = row.get('发行价格', '')
+        max_purchase = row.get('申购上限', '')
+        listing_date = row.get('上市日期', '')
         
         # 格式化消息 - 仅包含新上市交易股票基本信息
         message += f"\n股票代码：{code}\n"
-        message += f"股票名称：{name}\n"
+        message += f"股票简称：{name}\n"
         message += f"发行价格：{issue_price}元\n"
         message += f"申购上限：{max_purchase}股\n"
         message += f"上市日期：{listing_date}\n"
