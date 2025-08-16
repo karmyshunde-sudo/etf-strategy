@@ -958,21 +958,22 @@ def crawl_akshare(etf_code):
         # 从AkShare获取日线数据
         # 移除无效的period参数
         df = ak.fund_etf_hist_sina(symbol=etf_code)
-        df.rename(columns={'日期': 'date', '收盘价': 'close'}, inplace=True)
-        df['date'] = pd.to_datetime(df['date'])
-        return df
         if df.empty:
             logger.error(f"AkShare返回空数据 {etf_code}")
             return None
+          
+        #df.rename(columns={'日期': 'date', '收盘价': 'close'}, inplace=True)
+        #df['date'] = pd.to_datetime(df['date'])
+        #return df
         
         # 重命名列为标准格式
         df = df.rename(columns={
-            'date': 'date',
-            'open': 'open',
-            'high': 'high',
-            'low': 'low',
-            'close': 'close',
-            'volume': 'volume'
+            '日期': 'date',
+            '开盘价': 'open',
+            '最高价': 'high',
+            '最低价': 'low',
+            '收盘价': 'close',
+            '成交量': 'volume'
         })
         
         # 将日期转换为datetime
@@ -1181,15 +1182,15 @@ def get_all_etf_list():
             etf_list.append(rs.get_row_data())
         
         if etf_list:
-            df = pd.DataFrame(etf_list, columns=rs.fields)
+            bs = pd.DataFrame(etf_list, columns=rs.fields)
             # 筛选ETF
-            df = df[df['code_name'].str.contains('ETF')]
-            df = df[['code', 'code_name']]
-            df.columns = ['code', 'name']
+            bs = rs[rs['code_name'].str.contains('ETF')]
+            bs = rs[['code', 'code_name']]
+            bs.columns = ['code', 'name']
             # 移除交易所前缀
-            df['code'] = df['code'].str.replace('sh.', '').str.replace('sz.', '')
+            bs['code'] = bs['code'].str.replace('sh.', '').str.replace('sz.', '')
             
-            logger.info(f"从Baostock成功获取 {len(df)} 只ETF")
+            logger.info(f"从Baostock成功获取 {len(bs)} 只ETF")
             return df
         
         logger.warning("Baostock返回空数据，尝试下一个数据源...")
@@ -1331,13 +1332,15 @@ def get_new_stock_subscriptions():
     try:
         logger.info("尝试从AkShare获取新股认购信息...")
         # 调用 stock_xgsglb_em 接口，可根据需要设置 symbol 参数，这里先取全部股票
-        df = ak.stock_xgsglb_em(symbol="全部股票")  
+        df = ak.stock_xgsglb_em()
+        if '申购日期' not in df.columns:
+            return pd.DataFrame()
         if not df.empty:
             # 假设返回数据里 '申购日期' 字段对应申购日期，需和 today 匹配
             df = df[df['申购日期'] == today]  
             if not df.empty:
                 # 按需提取字段，这里根据你之前返回的字段名示例，选取常用字段
-                return df[['股票代码', '股票简称', '发行价格', '申购上限', '申购日期']]
+                return df[['申购代码', '股票简称', '发行价格', '申购上限', '申购日期']]
             logger.warning("AkShare返回空数据（当天无新股可认购或接口返回无匹配），尝试备用数据源...")
     except Exception as e:
         logger.error(f"AkShare获取新股认购信息失败: {str(e)}")
