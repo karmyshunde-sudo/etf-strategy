@@ -1492,39 +1492,47 @@ def get_new_stock_listings():
 
 def get_test_new_stock_subscriptions():
     """获取测试用的新股申购信息（回溯21天，记录成功数据源）"""
+
+    # 统一所有数据源的列名
+    STANDARD_COLUMNS = {
+        '股票代码': 'code',
+        '股票简称': 'name',
+        '发行价格': 'issue_price',
+        '申购上限': 'max_purchase',
+        '申购日期': 'publish_date'
+    }
     # 尝试获取当天真实数据
     today_stocks, source = get_new_stock_subscriptions_with_source()
     if not today_stocks.empty:
         logger.info(f"从{source}获取当天新股数据")
-        return today_stocks
+        return today_stocks.rename(columns=STANDARD_COLUMNS)
     
     # 回溯21天
     for i in range(1, 22):
         date_str = (datetime.datetime.now() - datetime.timedelta(days=i)).strftime('%Y-%m-%d')
-        normalized_date = date_str  # 保持格式统一
         
         # 记录当前尝试的日期
-        logger.info(f"回溯第{i}天: {normalized_date}")
+        logger.info(f"回溯第{i}天: {date_str}")
         
         # 尝试AkShare（主数据源）
-        ak_data, ak_source = try_akshare_source(normalized_date)
+        ak_data, ak_source = try_akshare_source(date_str)
         if not ak_data.empty:
-            logger.info(f"从{ak_source}获取{normalized_date}新股数据")
-            return ak_data
+            logger.info(f"从{ak_source}获取{date_str}新股数据")
+            return ak_data.rename(columns=STANDARD_COLUMNS)
         
         # 尝试Baostock（备用数据源1）
-        bs_data, bs_source = try_baostock_source(date_str, normalized_date)
+        bs_data, bs_source = try_baostock_source(date_str)
         if not bs_data.empty:
-            logger.info(f"从{bs_source}获取{normalized_date}新股数据")
-            return bs_data
+            logger.info(f"从{bs_source}获取{date_str}新股数据")
+            return bs_data.rename(columns=STANDARD_COLUMNS)
         
         # 尝试新浪财经（备用数据源2）
-        sina_data, sina_source = try_sina_source(normalized_date)
+        sina_data, sina_source = try_sina_source(date_str)
         if not sina_data.empty:
-            logger.info(f"从{sina_source}获取{normalized_date}新股数据")
-            return sina_data
+            logger.info(f"从{sina_source}获取{date_str}新股数据")
+            return sina_data.rename(columns=STANDARD_COLUMNS)
         
-        logger.info(f"{normalized_date}未找到新股数据，继续回溯...")
+        logger.info(f"{date_str}未找到新股数据，继续回溯...")
     
     # 21天均未找到数据
     logger.warning("21天回溯未找到任何新股数据")
@@ -1569,23 +1577,24 @@ def get_new_stock_subscriptions_with_source():
     
     return pd.DataFrame(), "无数据源"
 
-def try_akshare_source(normalized_date):
+def try_akshare_source(date_str):
     """尝试AkShare数据源并返回数据及来源"""
     try:
-        logger.info(f"尝试从AkShare获取{normalized_date}的历史新股数据...")
+        logger.info(f"尝试从AkShare获取{date_str}的历史新股数据...")
         df = ak.stock_xgsglb_em()
         if not df.empty and '申购日期' in df.columns:
-            df = df[df['申购日期'] == normalized_date]
+            df = df[df['申购日期'] == date_str]
             if not df.empty:
+                # 只保留需要的列
                 return df[['股票代码', '股票简称', '发行价格', '申购上限', '申购日期']], "AkShare"
     except Exception as e:
-        logger.error(f"AkShare获取{normalized_date}数据失败: {str(e)}")
+        logger.error(f"AkShare获取{date_str}数据失败: {str(e)}")
     return pd.DataFrame(), "AkShare"
 
-def try_baostock_source(date_str, normalized_date):
+def try_baostock_source(date_str):
     """尝试Baostock数据源并返回数据及来源"""
     try:
-        logger.info(f"尝试从Baostock获取{normalized_date}的历史新股数据...")
+        logger.info(f"尝试从Baostock获取{date_str}的历史新股数据...")
         login_result = bs.login()
         if login_result.error_code != '0':
             logger.warning(f"Baostock登录失败: {login_result.error_msg}")
@@ -1599,7 +1608,7 @@ def try_baostock_source(date_str, normalized_date):
         
         # 转换为DataFrame
         data_list = []
-        while (rs.error_code == '0') & rs.next():
+        while (rs.error_code == '0') and rs.next():
             data_list.append(rs.get_row_data())
         df = pd.DataFrame(data_list, columns=rs.fields)
         
@@ -1607,15 +1616,17 @@ def try_baostock_source(date_str, normalized_date):
         df = df[df['ipoDate'] == date_str]
         
         if not df.empty:
-            result = df[['code', 'code_name', 'ipoDate']].rename(
-                columns={'code': '股票代码', 'code_name': '股票简称', 'ipoDate': '申购日期'}
-            )
+            # 使用标准列名
+            result = df[['code', 'code_name', 'ipoDate']].copy()
+            result.columns = ['股票代码', '股票简称', '申购日期']
+            
             # 添加占位字段
             result['发行价格'] = "N/A"
             result['申购上限'] = "N/A"
+            
             return result, "Baostock"
     except Exception as e:
-        logger.error(f"Baostock获取{normalized_date}数据失败: {str(e)}")
+        logger.error(f"Baostock获取{date_str}数据失败: {str(e)}")
     finally:
         try:
             bs.logout()
@@ -1623,10 +1634,10 @@ def try_baostock_source(date_str, normalized_date):
             pass
     return pd.DataFrame(), "Baostock"
 
-def try_sina_source(normalized_date):
+def try_sina_source(date_str):
     """尝试新浪财经数据源并返回数据及来源"""
     try:
-        logger.info(f"尝试从新浪财经获取{normalized_date}的历史新股数据...")
+        logger.info(f"尝试从新浪财经获取{date_str}的历史新股数据...")
         sina_url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=1&num=100&sort=symbol&asc=1&node=iponew&symbol=&_s_r_a=page"
         response = requests.get(sina_url, timeout=15)
         response.raise_for_status()
@@ -1634,19 +1645,19 @@ def try_sina_source(normalized_date):
         
         new_stocks = []
         for item in data:
-            if item.get('申购日期', '') == normalized_date:
+            if item.get('申购日期', '') == date_str:
                 new_stocks.append({
                     '股票代码': item.get('申购代码', ''),
                     '股票简称': item.get('股票简称', ''),
                     '发行价格': item.get('发行价格', ''),
                     '申购上限': item.get('申购上限', ''),
-                    '申购日期': normalized_date
+                    '申购日期': date_str
                 })
         
         if new_stocks:
             return pd.DataFrame(new_stocks), "新浪财经"
     except Exception as e:
-        logger.error(f"新浪财经获取{normalized_date}数据失败: {str(e)}")
+        logger.error(f"新浪财经获取{date_str}数据失败: {str(e)}")
     return pd.DataFrame(), "新浪财经"
 
 def get_test_new_stock_listings():
@@ -1736,25 +1747,23 @@ def format_new_stock_subscriptions_message(new_stocks):
     """
     格式化新股申购信息消息
     参数:
-        new_stocks: 新股DataFrame
+        new_stocks: 新股DataFrame (使用标准列名)
     返回:
         str: 格式化后的消息
     """
     if new_stocks is None or new_stocks.empty:
         return "今天没有新股、新债、新债券可认购"
     
-    # 仅包含新股基本信息，不涉及任何ETF评分
+    # 使用标准列名
     message = "【今日新股申购信息】\n"
     for _, row in new_stocks.iterrows():
-        # 确保只使用新股基本信息
-        code = row.get('申购代码', '')
-        name = row.get('股票简称', '')
-        issue_price = row.get('发行价格', '')
-        max_purchase = row.get('申购上限', '')
-        publish_date = row.get('申购日期', '')
+        code = row.get('code', '')
+        name = row.get('name', '')
+        issue_price = row.get('issue_price', '')
+        max_purchase = row.get('max_purchase', '')
+        publish_date = row.get('publish_date', '')
         
-        # 格式化消息 - 仅包含新股基本信息
-        message += f"\n申购代码：{code}\n"
+        message += f"\n股票代码：{code}\n"
         message += f"股票简称：{name}\n"
         message += f"发行价格：{issue_price}元\n"
         message += f"申购上限：{max_purchase}股\n"
