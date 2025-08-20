@@ -784,23 +784,72 @@ def load_from_cache(etf_code, data_type='daily', days=30):
     return None
 
 def save_to_cache(etf_code, data, data_type='daily'):
-    """
-    将ETF数据保存到缓存
-    参数:
-        etf_code: ETF代码
-         DataFrame数据
-        data_type: 'daily'或'intraday'
-    """
-    cache_path = get_cache_path(etf_code, data_type)
+    """增强版：将ETF数据保存到缓存（原子操作）"""
+    if data is None or data.empty:
+        return False
     
-    if os.path.exists(cache_path):
-        # 追加到现有文件
-        existing_data = pd.read_csv(cache_path)
-        combined = pd.concat([existing_data, data]).drop_duplicates(subset=['date'], keep='last')
-        combined.to_csv(cache_path, index=False)
-    else:
-        # 创建新文件
-        data.to_csv(cache_path, index=False)
+    cache_path = get_cache_path(etf_code, data_type)
+    temp_path = cache_path + '.tmp'
+    
+    try:
+        # 1. 先写入临时文件
+        data.to_csv(temp_path, index=False)
+        
+        # 2. 如果存在原文件，合并数据
+        if os.path.exists(cache_path):
+            existing_data = pd.read_csv(cache_path)
+            combined = pd.concat([existing_data, data])
+            # 去重并按日期排序
+            combined = combined.drop_duplicates(subset=['date'], keep='last')
+            combined = combined.sort_values('date')
+            combined.to_csv(temp_path, index=False)
+        
+        # 3. 原子操作：先删除原文件，再重命名
+        if os.path.exists(cache_path):
+            os.remove(cache_path)
+        os.rename(temp_path, cache_path)
+        
+        logger.debug(f"成功保存 {etf_code} 数据到 {cache_path}")
+        return True
+    
+    except Exception as e:
+        logger.error(f"保存 {etf_code} 数据失败: {str(e)}")
+        # 清理临时文件
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except:
+                pass
+        return False
+
+def get_crawl_status():
+    """获取当前爬取状态"""
+    status_file = os.path.join(Config.RAW_DATA_DIR, 'crawl_status.json')
+    if os.path.exists(status_file):
+        try:
+            with open(status_file, 'r') as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+def update_crawl_status(etf_code, status, error=None):
+    """更新爬取状态"""
+    status_file = os.path.join(Config.RAW_DATA_DIR, 'crawl_status.json')
+    crawl_status = get_crawl_status()
+    
+    crawl_status[etf_code] = {
+        'status': status,
+        'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'error': error if error else ''
+    }
+    
+    try:
+        with open(status_file, 'w') as f:
+            json.dump(crawl_status, f, indent=2)
+    except Exception as e:
+        logger.error(f"更新爬取状态失败: {str(e)}")
+
 
 def crawl_akshare(etf_code):
     """从AkShare爬取ETF数据（主数据源，使用最新稳定接口）
@@ -1585,15 +1634,36 @@ def get_test_new_stock_subscriptions():
     logger.warning("21天回溯未找到任何新股数据")
     return pd.DataFrame()
 
+def save_new_stock_data(data, data_type='subscriptions'):
+    """保存新股数据"""
+    try:
+        # 创建目录
+        os.makedirs(Config.NEW_STOCK_DIR, exist_ok=True)
+        
+        # 生成文件名
+        date_str = datetime.datetime.now().strftime('%Y%m%d')
+        filename = f"{data_type}_{date_str}.csv"
+        filepath = os.path.join(Config.NEW_STOCK_DIR, filename)
+        
+        # 保存数据
+        data.to_csv(filepath, index=False)
+        logger.info(f"已保存{data_type}数据到 {filepath}")
+        return True
+    except Exception as e:
+        logger.error(f"保存{data_type}数据失败: {str(e)}")
+        return False
+
 def get_new_stock_subscriptions_with_source():
     """获取当天新股数据并记录数据源"""
-    # 尝试AkShare（主数据源）
     try:
+        # 尝试AkShare（主数据源）
         today = datetime.datetime.now().strftime('%Y-%m-%d')
         df = ak.stock_xgsglb_em()
         if not df.empty and '申购日期' in df.columns:
             df = df[df['申购日期'] == today]
             if not df.empty:
+                # 保存数据
+                save_new_stock_data(df, 'subscriptions')
                 return df[['股票代码', '股票简称', '发行价格', '申购上限', '申购日期']], "AkShare"
     except Exception as e:
         logger.error(f"AkShare获取新股信息失败: {str(e)}")
@@ -2164,6 +2234,94 @@ def push_listing_info(test=False):
     
     return success
 
+def cron_crawl_data(task_type='daily'):
+    """通用数据爬取任务（支持断点续爬）"""
+    logger.info(f"{task_type}数据爬取任务触发")
+    
+    # 检查是否为交易日
+    if not is_trading_day() and task_type == 'daily':
+        logger.info("今天不是交易日，跳过爬取")
+        return {"status": "skipped", "message": "Not trading day"}
+    
+    # 获取所有ETF列表
+    etf_list = get_all_etf_list()
+    if etf_list is None or etf_list.empty:
+        logger.error("未获取到ETF列表，跳过爬取")
+        return {"status": "skipped", "message": "No ETF list available"}
+    
+    # 加载爬取状态
+    crawl_status = get_crawl_status()
+    beijing_now = get_beijing_time()
+    date_str = beijing_now.strftime('%Y%m%d')
+    
+    # 统计
+    success_count = 0
+    failed_count = 0
+    skipped_count = 0
+    
+    # 爬取每只ETF的数据
+    for _, etf in etf_list.iterrows():
+        etf_code = etf['code']
+        
+        # 检查是否已成功爬取（针对日线数据）
+        if task_type == 'daily' and etf_code in crawl_status and crawl_status[etf_code].get('status') == 'success':
+            # 检查是否为今天的数据
+            last_success = crawl_status[etf_code].get('timestamp', '')
+            if last_success.startswith(date_str):
+                logger.info(f"ETF {etf_code} 已成功爬取，跳过")
+                skipped_count += 1
+                continue
+        
+        try:
+            # 标记开始
+            update_crawl_status(etf_code, 'in_progress')
+            
+            # 爬取数据
+            data = get_etf_data(etf_code, task_type)
+            
+            # 检查结果
+            if data is not None and not data.empty:
+                # 保存数据（已在get_etf_data内部完成）
+                update_crawl_status(etf_code, 'success')
+                success_count += 1
+                logger.info(f"成功爬取 {etf_code} {task_type}数据，共 {len(data)} 条记录")
+            else:
+                update_crawl_status(etf_code, 'failed', 'Empty data')
+                failed_count += 1
+                logger.warning(f"爬取 {etf_code} {task_type}数据失败：返回空数据")
+        
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"爬取 {etf_code} {task_type}数据时出错: {error_msg}")
+            update_crawl_status(etf_code, 'failed', error_msg)
+            failed_count += 1
+        
+        # 避免请求过快
+        time.sleep(1)
+    
+    # 清理状态文件（如果全部成功）
+    if success_count + skipped_count == len(etf_list):
+        status_file = os.path.join(Config.RAW_DATA_DIR, 'crawl_status.json')
+        if os.path.exists(status_file):
+            try:
+                os.remove(status_file)
+                logger.info("所有ETF爬取成功，已清理状态文件")
+            except Exception as e:
+                logger.warning(f"清理状态文件失败: {str(e)}")
+    
+    # 生成汇总
+    total = len(etf_list)
+    logger.info(f"{task_type}数据爬取完成：成功 {success_count}/{total}，失败 {failed_count}，跳过 {skipped_count}")
+    
+    return {
+        "status": "partial_success" if failed_count > 0 else "success",
+        "total": total,
+        "success": success_count,
+        "failed": failed_count,
+        "skipped": skipped_count,
+        "task_type": task_type
+    }
+
 # ========== 定时任务端点 ==========
 
 @app.route('/health')
@@ -2178,60 +2336,106 @@ def health_check():
 
 @app.route('/cron/crawl_daily', methods=['GET', 'POST'])
 def cron_crawl_daily():
-    """日线数据爬取任务"""
-    logger.info("日线数据爬取任务触发")
-    
-    # 检查是否为交易日
-    if not is_trading_day():
-        logger.info("今天不是交易日，跳过爬取")
-        response = {"status": "skipped", "message": "Not trading day"}
-        return jsonify(response) if has_app_context() else response
-    
-    # 获取所有ETF列表
-    etf_list = get_all_etf_list()
-    if etf_list is None or etf_list.empty:
-        logger.error("未获取到ETF列表，跳过爬取")
-        response = {"status": "skipped", "message": "No ETF list available"}
-        return jsonify(response) if has_app_context() else response
-    
-    # 爬取每只ETF的日线数据
-    success = True
-    for _, etf in etf_list.iterrows():
-        data = get_etf_data(etf['code'], 'daily')
-        if data is None or data.empty:
-            logger.error(f"爬取{etf['code']}日线数据失败")
-            success = False
-        time.sleep(1)  # 避免请求过快
-    
-    response = {"status": "success" if success else "error"}
-    return jsonify(response) if has_app_context() else response
+    return cron_crawl_data('daily')
 
 @app.route('/cron/crawl_intraday', methods=['GET', 'POST'])
 def cron_crawl_intraday():
-    """盘中数据爬取任务"""
-    logger.info("盘中数据爬取任务触发")
+    return cron_crawl_data('intraday')
+
+# 断点续爬接口
+@app.route('/cron/resume_crawl', methods=['GET', 'POST'])
+def resume_crawl():
+    """断点续爬任务"""
+    logger.info("断点续爬任务触发")
     
     # 检查是否为交易日
     if not is_trading_day():
         logger.info("今天不是交易日，跳过爬取")
-        response = {"status": "skipped", "message": "Not trading day"}
-        return jsonify(response) if has_app_context() else response
+        return {"status": "skipped", "message": "Not trading day"}
+    
+    # 检查状态文件
+    status_file = os.path.join(Config.RAW_DATA_DIR, 'crawl_status.json')
+    if not os.path.exists(status_file):
+        logger.info("无待续爬任务，启动全新爬取")
+        return cron_crawl_daily()
+    
+    # 加载状态
+    try:
+        with open(status_file, 'r') as f:
+            crawl_status = json.load(f)
+    except Exception as e:
+        logger.error(f"加载爬取状态失败: {str(e)}")
+        return {"status": "error", "message": "Failed to load status"}
+    
+    # 检查是否有未完成任务
+    pending_etfs = [code for code, status in crawl_status.items() 
+                   if status.get('status') in ['in_progress', 'failed']]
+    
+    if not pending_etfs:
+        logger.info("无待续爬ETF，任务已完成")
+        return {"status": "success", "message": "No pending ETFs"}
+    
+    logger.info(f"发现 {len(pending_etfs)} 个待续爬ETF")
     
     # 获取所有ETF列表
     etf_list = get_all_etf_list()
     if etf_list is None or etf_list.empty:
         logger.error("未获取到ETF列表，跳过爬取")
-        response = {"status": "skipped", "message": "No ETF list available"}
-        return jsonify(response) if has_app_context() else response
+        return {"status": "skipped", "message": "No ETF list available"}
     
-    # 爬取每只ETF的盘中数据
-    success = True
-    for _, etf in etf_list.iterrows():
-        data = get_etf_data(etf['code'], 'intraday')
-        if data is None or data.empty:
-            logger.error(f"爬取{etf['code']}盘中数据失败")
-            success = False
-        time.sleep(1)  # 避免请求过快
+    # 筛选待爬ETF
+    pending_etf_list = etf_list[etf_list['code'].isin(pending_etfs)]
+    
+    # 继续爬取
+    success_count = 0
+    failed_count = 0
+    
+    for _, etf in pending_etf_list.iterrows():
+        etf_code = etf['code']
+        
+        try:
+            # 标记开始
+            update_crawl_status(etf_code, 'in_progress')
+            
+            # 爬取数据
+            data = get_etf_data(etf_code, 'daily')
+            
+            # 检查结果
+            if data is not None and not data.empty:
+                update_crawl_status(etf_code, 'success')
+                success_count += 1
+                logger.info(f"成功续爬 {etf_code}，共 {len(data)} 条记录")
+            else:
+                update_crawl_status(etf_code, 'failed', 'Empty data')
+                failed_count += 1
+                logger.warning(f"续爬 {etf_code} 失败：返回空数据")
+        
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"续爬 {etf_code} 时出错: {error_msg}")
+            update_crawl_status(etf_code, 'failed', error_msg)
+            failed_count += 1
+        
+        # 避免请求过快
+        time.sleep(1)
+    
+    # 检查是否全部完成
+    remaining = [code for code, status in get_crawl_status().items() 
+                if status.get('status') in ['in_progress', 'failed']]
+    
+    if not remaining:
+        try:
+            os.remove(status_file)
+            logger.info("所有ETF爬取成功，已清理状态文件")
+        except Exception as e:
+            logger.warning(f"清理状态文件失败: {str(e)}")
+    
+    return {
+        "status": "partial_success" if failed_count > 0 else "success",
+        "total_pending": len(pending_etfs),
+        "success": success_count,
+        "failed": failed_count
+    }
     
     # ================== 新增：套利扫描逻辑 ==================
     # 检查当前是否持有套利ETF
@@ -2410,40 +2614,27 @@ def cron_new_stock_info():
     # 检查是否为交易日
     if not is_trading_day():
         logger.info("今天不是交易日，跳过新股信息推送")
-        response = {"status": "skipped", "message": "Not trading day"}
-        return jsonify(response) if has_app_context() else response
+        return {"status": "skipped", "message": "Not trading day"}
     
-    # 检查是否已经推送过
-    if is_new_stock_info_pushed():
-        logger.info("新股信息已推送，跳过")
-        response = {"status": "skipped", "message": "Already pushed"}
-        return jsonify(response) if has_app_context() else response
+    # 获取当天新股数据
+    today_stocks, source = get_new_stock_subscriptions_with_source()
+    if not today_stocks.empty:
+        logger.info(f"从{source}获取当天新股数据")
+        # 推送消息
+        push_new_stock_info(today_stocks)
     
-    # 推送新股申购信息
-    success_subscriptions = push_new_stock_info()
+    # 获取当天新上市交易的新股
+    today_listings, source = get_new_stock_listings_with_source()
+    if not today_listings.empty:
+        logger.info(f"从{source}获取当天新上市交易数据")
+        # 推送消息
+        push_new_listing_info(today_listings)
     
-    # 如果新股申购信息推送成功，等待1分钟再推送新上市交易股票信息
-    if success_subscriptions:
-        time.sleep(60)  # 等待1分钟
-        
-        # 推送新上市交易股票信息
-        success_listings = push_listing_info()
-        
-        # 标记已推送
-        if success_subscriptions and success_listings:
-            mark_new_stock_info_pushed()
-            mark_listing_info_pushed()
-            response = {"status": "success", "message": "New stock info and listings pushed"}
-            return jsonify(response) if has_app_context() else response
-        elif success_subscriptions:
-            logger.warning("新上市交易股票信息推送失败，但新股申购信息已成功推送")
-            mark_new_stock_info_pushed()
-            response = {"status": "partial_success", "message": "New stock subscriptions pushed, listings failed"}
-            return jsonify(response) if has_app_context() else response
-    else:
-        logger.error("新股申购信息推送失败")
-        response = {"status": "error", "message": "Failed to push new stock subscriptions"}
-        return jsonify(response) if has_app_context() else response
+    return {
+        "status": "success",
+        "new_stocks": len(today_stocks),
+        "new_listings": len(today_listings)
+    }
 
 @app.route('/cron/retry-push', methods=['GET', 'POST'])
 def cron_retry_push():
