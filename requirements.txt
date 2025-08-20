@@ -8,3 +8,4 @@ pytz
 numpy
 akshare==1.17.35
 pandas>=1.5.3
+jqdatask
