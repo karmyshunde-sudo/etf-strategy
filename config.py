@@ -1,8 +1,4 @@
-"""
-版本250820-Ver1.0
-
-"""
-
+"""版本250820-Ver2.0"""
 import os
 
 class Config:
@@ -11,7 +7,7 @@ class Config:
     # 获取项目基础目录
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     
-    # 原始数据存储目录
+    # 原始数据存储目录（确保目录结构正确）
     RAW_DATA_DIR = os.path.join(BASE_DIR, 'data', 'raw')
     
     # 股票池存储目录
@@ -31,26 +27,12 @@ class Config:
     
     # 新股信息推送状态文件
     NEW_STOCK_PUSHED_FLAG = os.path.join(BASE_DIR, 'data', 'new_stock_pushed.flag')
-    
-    # 新上市交易股票信息推送状态文件
     LISTING_PUSHED_FLAG = os.path.join(BASE_DIR, 'data', 'listing_pushed.flag')
-    
-    # 套利ETF状态文件
     ARBITRAGE_STATUS_FILE = os.path.join(BASE_DIR, 'data', 'arbitrage_status.json')
     
-    # 数据保留天数
-    OTHER_DATA_RETENTION_DAYS = 365
-    
-    # 确保所有目录存在
-    for directory in [RAW_DATA_DIR, STOCK_POOL_DIR, TRADE_LOG_DIR, 
-                     ERROR_LOG_DIR, NEW_STOCK_DIR, ARBITRAGE_DIR]:
-        os.makedirs(directory, exist_ok=True)
-    
-    # 企业微信webhook地址（从环境变量获取）
-    WECOM_WEBHOOK = os.getenv('WECOM_WEBHOOK', '')
-    
-    # 消息底部附加信息
-    MESSAGE_FOOTER = "【鱼盆ETF投资量化系统】全自动决策 | 无需人工干预 | 版本号250815.10.02"
+    # 数据保留策略（天数）
+    OTHER_DATA_RETENTION_DAYS = 30  # 其他数据保留30天
+    # 交易流水永久保存，不设置保留天数
     
     # 定时任务验证密钥（从环境变量获取）
     CRON_SECRET = os.getenv('CRON_SECRET', 'default-secret')
@@ -72,11 +54,10 @@ class Config:
     
     # 新浪财经API基础URL
     SINA_FINANCE_URL = 'http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php'
-
+    
     # 聚宽配置
     JOINQUANT_USERNAME = os.getenv('JOINQUANT_USERNAME', '13929178188')
     JOINQUANT_PASSWORD = os.getenv('JOINQUANT_PASSWORD', 'aA22280090')
-
     
     # 日志级别
     LOG_LEVEL = 'INFO'
@@ -86,9 +67,25 @@ class Config:
     
     @classmethod
     def init_directories(cls):
-        """初始化所有数据目录"""
-        # 遍历所有目录配置
-        for directory in [cls.RAW_DATA_DIR, cls.STOCK_POOL_DIR, cls.TRADE_LOG_DIR, 
-                         cls.ERROR_LOG_DIR, cls.NEW_STOCK_DIR, cls.ARBITRAGE_DIR]:
-            # 创建目录（如果不存在）
-            os.makedirs(directory, exist_ok=True)
+        """初始化所有数据目录（确保目录存在）"""
+        directories = [
+            cls.RAW_DATA_DIR,
+            os.path.join(cls.RAW_DATA_DIR, 'etf_data'),
+            cls.STOCK_POOL_DIR,
+            cls.TRADE_LOG_DIR,
+            cls.ERROR_LOG_DIR,
+            cls.NEW_STOCK_DIR,
+            cls.ARBITRAGE_DIR
+        ]
+        
+        for directory in directories:
+            try:
+                os.makedirs(directory, exist_ok=True)
+                # 创建.gitkeep文件确保目录被Git跟踪
+                gitkeep_path = os.path.join(directory, '.gitkeep')
+                if not os.path.exists(gitkeep_path):
+                    with open(gitkeep_path, 'w') as f:
+                        f.write(f"# Git keep file for {directory}\n")
+                    print(f"Created .gitkeep in {directory}")
+            except Exception as e:
+                print(f"创建目录 {directory} 失败: {str(e)}")
