@@ -12,3 +12,10 @@
 2025-08-20 15:21:33,634 - data_fix - ERROR - AkShare爬取错误 sh.512888: HTTPSConnectionPool(host='88.push2.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/clist/get?pn=2&pz=100&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&wbp2u=%7C0%7C0%7C0%7Cweb&fid=f3&fs=b%3AMK0021%2Cb%3AMK0022%2Cb%3AMK0023%2Cb%3AMK0024&fields=f3%2Cf12%2Cf13 (Caused by NewConnectionError('<urllib3.connection.HTTPSConnection object at 0x7fa242bc4850>: Failed to establish a new connection: [Errno 101] Network is unreachable'))
 2025-08-20 15:21:33,968 - data_fix - ERROR - Baostock查询失败: 股票代码应为9位，请检查。格式示例：sh.600000。
 2025-08-20 15:21:44,506 - data_fix - ERROR - 聚宽获取数据失败 sh.512888: 您的账号权限仅能获取2024-05-12至2025-05-19的数据，请调整时间参数后重试。如需更长时间的数据范围，可联系运营咨询采购
+2025-08-20 15:42:03,591 - data_fix - ERROR - AkShare返回数据缺少必要列
+2025-08-20 15:42:03,592 - data_fix - ERROR - AkShare获取ETF列表失败: 数据格式不匹配
+2025-08-20 15:42:12,187 - data_fix - ERROR - 聚宽获取ETF列表失败: 'code'
+2025-08-20 15:42:12,187 - data_fix - ERROR - 所有数据源均无法获取ETF列表，使用默认ETF列表
+2025-08-20 15:42:53,450 - data_fix - ERROR - AkShare返回空数据 sh.512888
+2025-08-20 15:42:53,941 - data_fix - ERROR - Baostock查询失败: 股票代码应为9位，请检查。格式示例：sh.600000。
+2025-08-20 15:42:59,021 - data_fix - ERROR - 聚宽获取数据失败 sh.512888: 您的账号权限仅能获取2024-05-12至2025-05-19的数据，请调整时间参数后重试。如需更长时间的数据范围，可联系运营咨询采购
