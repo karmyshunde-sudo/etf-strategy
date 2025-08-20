@@ -18,6 +18,9 @@ from data_fix import (get_beijing_time, is_trading_day, get_all_etf_list,
                      get_new_stock_subscriptions, get_new_stock_listings,
                      cron_crawl_daily, cron_crawl_intraday, cron_cleanup, resume_crawl)
 
+# 确保所有数据目录存在
+Config.init_directories()
+
 app = Flask(__name__)
 logger = get_logger(__name__)
 
