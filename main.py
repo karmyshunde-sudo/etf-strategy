@@ -1080,6 +1080,7 @@ def get_all_etf_list():
     返回:
         DataFrame: ETF列表，包含代码和名称
     """
+ """   250820-1536修改前的代码：
     try:
         # 从AkShare获取ETF列表（主数据源）- 使用新的接口
         logger.info("尝试从AkShare获取ETF列表...")
@@ -1095,7 +1096,44 @@ def get_all_etf_list():
             return etf_list
     except Exception as e:
         logger.error(f"AkShare获取ETF列表失败: {str(e)}")
-    
+   """
+    try:
+        # 尝试从AkShare获取ETF列表（主数据源）
+        logger.info("尝试从AkShare获取ETF列表...")
+        
+        # 使用新的、更稳定的接口来获取ETF列表
+        # ak.fund_etf_list_em() 是专门为获取ETF列表设计的接口
+        df = ak.fund_etf_list_em()
+        
+        if not df.empty:
+            # 检查并处理列名
+            # 常见的列名可能是 'fund_code', 'fund_name', 'name'
+            # 我们需要找到对应的列
+            code_col = None
+            name_col = None
+            
+            for col in df.columns:
+                if 'code' in col.lower() or 'fund_code' in col.lower():
+                    code_col = col
+                elif 'name' in col.lower() or 'fund_name' in col.lower():
+                    name_col = col
+            
+            if code_col is None or name_col is None:
+                logger.error("无法从AkShare数据中识别出ETF代码和名称列")
+                raise Exception("无法识别列名")
+            
+            # 重命名列，并添加交易所前缀
+            etf_list = df[[code_col, name_col]].copy()
+            etf_list.columns = ['code', 'name']
+            etf_list['code'] = etf_list['code'].apply(lambda x: f"sh.{x}" if str(x).startswith('5') else f"sz.{x}")
+            
+            logger.info(f"从AkShare成功获取 {len(encodedf_list)} 只ETF")
+            return etf_list
+        
+        logger.warning("AkShare返回空数据，尝试下一个数据源...")
+    except Exception as e:
+        logger.error(f"AkShare获取ETF列表失败: {str(e)}")
+        
     # 尝试Baostock（备用数据源1）
     try:
         logger.info("尝试从Baostock获取ETF列表...")
