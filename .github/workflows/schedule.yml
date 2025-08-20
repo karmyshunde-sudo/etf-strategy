@@ -3,22 +3,17 @@ name: ETF Strategy Scheduler
 on:
   schedule:
     # 每个交易日 9:35 推送新股信息 (北京时间 UTC+8)
-    - cron: '35 1 * * 1-5'  # UTC 1:35 = 北京时间 9:35
-    
+    - cron: '35 1 * * 1-5' # UTC 1:35 = 北京时间 9:35
     # 每个交易日 13:40 推送策略信号
-    - cron: '40 5 * * 1-5'  # UTC 5:40 = 北京时间 13:40
-    
+    - cron: '40 5 * * 1-5' # UTC 5:40 = 北京时间 13:40
     # 每周五 16:00 更新股票池
-    - cron: '0 8 * * 5'     # UTC 8:00 = 北京时间 16:00
-    
+    - cron: '0 8 * * 5' # UTC 8:00 = 北京时间 16:00
     # 每个交易日 15:30 爬取日线数据
-    - cron: '30 7 * * 1-5'  # UTC 7:30 = 北京时间 15:30
-    
+    - cron: '30 7 * * 1-5' # UTC 7:30 = 北京时间 15:30
     # 盘中数据爬取 (每30分钟)
-    - cron: '35 1-6/1 * * 1-5'  # UTC 时间 = 北京时间 - 8
-    
+    - cron: '35 1-6/1 * * 1-5' # UTC 时间 = 北京时间 - 8
     # 每天 00:00 清理旧数据
-    - cron: '0 16 * * *'    # UTC 16:00 = 北京时间 00:00
+    - cron: '0 16 * * *' # UTC 16:00 = 北京时间 00:00
   
   # 允许手动触发
   workflow_dispatch:
@@ -28,10 +23,10 @@ on:
         required: true
         type: choice
         options:
-          - 'test_message'      				#【T01】手动推送微信消息
-          - 'test_new_stock'    			#【T07】手动推送新股信息
+          - 'test_message' 				#【T01】手动推送微信消息
+          - 'test_new_stock' 			#【T07】手动推送新股信息
           - 'test_new_stock_listings'		#新增【T08】手动套利扫描
-          - 'test_stock_pool'    			#【T04】手动推送当前股票池
+          - 'test_stock_pool' 			#【T04】手动推送当前股票池
           - 'test_execute'				#【T05】手动执行策略并推送结果
           - 'test_reset'					#【T06】手动重置所有仓位（测试用）
           - 'test_arbitrage'				#【T09】手动套利扫描
@@ -41,7 +36,7 @@ on:
           - 'crawl_daily'					#日线数据爬取任务
           - 'crawl_intraday'				#盘中数据爬取任务
           - 'cleanup'					#数据清理任务
-          - 'arbitrage-scan'  # 新增定时套利扫描
+          - 'arbitrage-scan' # 新增定时套利扫描
 
 jobs:
   run-new-stock-info:
@@ -52,7 +47,6 @@ jobs:
       contents: write
       id-token: write
       pull-requests: write
-      
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -64,13 +58,12 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-          
+      
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
-      # 修复2：添加调试信息
+      
       - name: Debug info
         run: |
           echo "Event schedule: ${{ github.event.schedule }}"
@@ -92,10 +85,11 @@ jobs:
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add data/
+          # 递归添加所有数据目录
+          git add data/**
           git commit -m "自动更新新股信息数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
           git push origin main || echo "Failed to push changes"
-
+      
       - name: Verify execution
         run: |
           echo "New stock info execution completed successfully!"
@@ -108,7 +102,6 @@ jobs:
       contents: write
       id-token: write
       pull-requests: write
-      
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -120,12 +113,12 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-          
+      
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
+      
       - name: Debug info
         run: |
           echo "Event schedule: ${{ github.event.schedule }}"
@@ -146,10 +139,11 @@ jobs:
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add data/
+          # 递归添加所有数据目录
+          git add data/**
           git commit -m "自动更新策略数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
           git push origin main || echo "Failed to push changes"
-
+      
       - name: Verify execution
         run: |
           echo "Strategy push execution completed successfully!"
@@ -162,7 +156,6 @@ jobs:
       contents: write
       id-token: write
       pull-requests: write
-      
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -174,16 +167,15 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-          
+      
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
+      
       - name: Debug info
         run: |
-          echo "Current UTC time: $(date -u)"
-          echo "Is Friday? $(date -u '+%u' | grep -q 5 && echo 'Yes' || echo 'No')"
+          echo "Is it Friday? $(date -u '+%u' | grep -q 5 && echo 'Yes' || echo 'No')"
       
       - name: Run strategy
         env:
@@ -199,10 +191,11 @@ jobs:
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add data/
+          # 递归添加所有数据目录
+          git add data/**
           git commit -m "自动更新股票池数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
           git push origin main || echo "Failed to push changes"
-
+      
       - name: Verify execution
         run: |
           echo "Stock pool update execution completed successfully!"
@@ -215,7 +208,6 @@ jobs:
       contents: write
       id-token: write
       pull-requests: write
-      
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -227,12 +219,12 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-          
+      
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
+      
       - name: Debug info
         run: |
           echo "Event schedule: ${{ github.event.schedule }}"
@@ -252,10 +244,11 @@ jobs:
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add data/
+          # 递归添加所有数据目录
+          git add data/**
           git commit -m "自动爬取日线数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
           git push origin main || echo "Failed to push changes"
-
+      
       - name: Verify execution
         run: |
           echo "Daily crawl execution completed successfully!"
@@ -268,7 +261,6 @@ jobs:
       contents: write
       id-token: write
       pull-requests: write
-      
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -280,12 +272,12 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-          
+      
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
+      
       - name: Debug info
         run: |
           echo "Current UTC hour: $(date -u '+%H')"
@@ -305,10 +297,11 @@ jobs:
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add data/
+          # 递归添加所有数据目录
+          git add data/**
           git commit -m "自动爬取盘中数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
           git push origin main || echo "Failed to push changes"
-
+      
       - name: Verify execution
         run: |
           echo "Intraday crawl execution completed successfully!"
@@ -321,7 +314,6 @@ jobs:
       contents: write
       id-token: write
       pull-requests: write
-      
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -333,19 +325,19 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-          
+      
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
+      
       - name: Debug info
         run: |
           echo "Manual trigger for arbitrage scan"
       
       - name: Run strategy
         env:
-          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'test_arbitrage' || 'arbitrage-scan' }}
+          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'arbitrage-scan' }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
           TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
@@ -357,10 +349,11 @@ jobs:
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add data/
+          # 递归添加所有数据目录
+          git add data/**
           git commit -m "自动更新套利数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
           git push origin main || echo "Failed to push changes"
-
+      
       - name: Verify execution
         run: |
           echo "Arbitrage scan execution completed successfully!"
@@ -373,7 +366,6 @@ jobs:
       contents: write
       id-token: write
       pull-requests: write
-      
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -385,12 +377,12 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-          
+      
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-
+      
       - name: Debug info
         run: |
           echo "Cleanup task triggered at $(date -u)"
@@ -409,10 +401,11 @@ jobs:
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add data/
+          # 递归添加所有数据目录
+          git add data/**
           git commit -m "自动清理旧数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
           git push origin main || echo "Failed to push changes"
-
+      
       - name: Verify execution
         run: |
           echo "Cleanup execution completed successfully!"
