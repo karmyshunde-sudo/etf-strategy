@@ -72,6 +72,11 @@ class Config:
     
     # 新浪财经API基础URL
     SINA_FINANCE_URL = 'http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php'
+
+    # 聚宽配置
+    JOINQUANT_USERNAME = os.getenv('JOINQUANT_USERNAME', '13929178188')
+    JOINQUANT_PASSWORD = os.getenv('JOINQUANT_PASSWORD', 'aA22280090')
+
     
     # 日志级别
     LOG_LEVEL = 'INFO'
