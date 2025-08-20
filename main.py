@@ -2336,7 +2336,92 @@ def health_check():
 
 @app.route('/cron/crawl_daily', methods=['GET', 'POST'])
 def cron_crawl_daily():
-    return cron_crawl_data('daily')
+    """日线数据爬取任务"""
+    logger.info("日线数据爬取任务触发")
+    
+    # 检查是否为交易日
+    if not is_trading_day():
+        logger.info("今天不是交易日，跳过爬取")
+        response = {"status": "skipped", "message": "Not trading day"}
+        return jsonify(response) if has_app_context() else response
+    
+    # 获取所有ETF列表
+    etf_list = get_all_etf_list()
+    if etf_list is None or etf_list.empty:
+        logger.error("未获取到ETF列表，跳过爬取")
+        response = {"status": "skipped", "message": "No ETF list available"}
+        return jsonify(response) if has_app_context() else response
+    
+    # 修改开始：加载爬取状态
+    crawl_status = get_crawl_status()
+    beijing_now = get_beijing_time()
+    date_str = beijing_now.strftime('%Y%m%d')
+    
+    # 统计
+    success = True
+    success_count = 0
+    failed_count = 0
+    skipped_count = 0
+    # 修改结束
+    
+    # 爬取每只ETF的日线数据
+    for _, etf in etf_list.iterrows():
+        etf_code = etf['code']
+        
+        # 修改开始：检查是否已成功爬取
+        if etf_code in crawl_status and crawl_status[etf_code].get('status') == 'success':
+            # 检查是否为今天的数据
+            last_success = crawl_status[etf_code].get('timestamp', '')
+            if last_success.startswith(date_str):
+                logger.info(f"ETF {etf_code} 已成功爬取，跳过")
+                skipped_count += 1
+                continue
+        # 修改结束
+        
+        try:
+            # 修改开始：标记开始
+            update_crawl_status(etf_code, 'in_progress')
+            # 修改结束
+            
+            data = get_etf_data(etf_code, 'daily')
+            if data is None or data.empty:
+                logger.error(f"爬取{etf_code}日线数据失败")
+                success = False
+                # 修改开始：标记失败
+                update_crawl_status(etf_code, 'failed', 'Empty data')
+                failed_count += 1
+                # 修改结束
+            else:
+                # 修改开始：标记成功
+                update_crawl_status(etf_code, 'success')
+                success_count += 1
+                logger.info(f"成功爬取 {etf_code} 日线数据，共 {len(data)} 条记录")
+                # 修改结束
+            
+            # 修改开始：避免请求过快
+            time.sleep(1)
+            # 修改结束
+        except Exception as e:
+            logger.error(f"爬取{etf_code}日线数据异常: {str(e)}")
+            # 修改开始：标记异常
+            update_crawl_status(etf_code, 'failed', str(e))
+            failed_count += 1
+            # 修改结束
+    
+    # 修改开始：清理状态文件（如果全部成功）
+    if success_count + skipped_count == len(etf_list):
+        status_file = os.path.join(Config.RAW_DATA_DIR, 'crawl_status.json')
+        if os.path.exists(status_file):
+            try:
+                os.remove(status_file)
+                logger.info("所有ETF爬取成功，已清理状态文件")
+            except Exception as e:
+                logger.warning(f"清理状态文件失败: {str(e)}")
+    # 修改结束
+    
+    response = {"status": "success" if success else "error", "message": f"成功: {success_count}, 失败: {failed_count}, 跳过: {skipped_count}"}
+    return jsonify(response) if has_app_context() else response
+
 
 @app.route('/cron/crawl_intraday', methods=['GET', 'POST'])
 def cron_crawl_intraday():
@@ -2430,12 +2515,13 @@ def resume_crawl():
         except Exception as e:
             logger.warning(f"清理状态文件失败: {str(e)}")
     
-    return {
+    response = {
         "status": "partial_success" if failed_count > 0 else "success",
         "total_pending": len(pending_etfs),
         "success": success_count,
         "failed": failed_count
     }
+    return jsonify(response) if has_app_context() else response    
     
     # ================== 新增：套利扫描逻辑 ==================
     # 检查当前是否持有套利ETF
@@ -3169,6 +3255,11 @@ def run_task(task):
             else:
                 logger.info("未发现套利机会")
                 return {"status": "success", "message": "No arbitrage opportunity found"}
+        
+        elif task == 'resume_crawl':
+            # 断点续爬
+            return resume_crawl()
+        
         
         elif task == 'run_new_stock_info':
             # 每日 9:35 新股信息推送
