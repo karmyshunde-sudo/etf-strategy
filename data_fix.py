@@ -14,6 +14,9 @@ import jqdatasdk as jq
 from config import Config
 from logger import get_logger
 
+# 确保所有数据目录存在（关键修复）
+Config.init_directories()
+
 logger = get_logger(__name__)
 
 def get_beijing_time():
