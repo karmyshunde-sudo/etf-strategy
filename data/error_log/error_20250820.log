@@ -1,0 +1,8 @@
+2025-08-20 14:39:10,025 - data_fix - ERROR - AkShare返回数据缺少必要列
+2025-08-20 14:39:10,025 - data_fix - ERROR - AkShare获取ETF列表失败: 数据格式不匹配
+2025-08-20 14:39:14,530 - data_fix - ERROR - 聚宽获取ETF列表失败: 'code'
+2025-08-20 14:39:14,530 - data_fix - ERROR - 所有数据源均无法获取ETF列表，使用默认ETF列表
+2025-08-20 14:39:14,530 - data_fix - ERROR - 更新爬取状态失败: [Errno 2] No such file or directory: '/home/runner/work/etf-strategy/etf-strategy/data/raw/crawl_status.json'
+2025-08-20 14:39:51,351 - data_fix - ERROR - AkShare返回空数据 sh.512888
+2025-08-20 14:39:51,676 - data_fix - ERROR - Baostock查询失败: 股票代码应为9位，请检查。格式示例：sh.600000。
+2025-08-20 14:39:54,134 - data_fix - ERROR - 聚宽获取数据失败 sh.512888: 您的账号权限仅能获取2024-05-12至2025-05-19的数据，请调整时间参数后重试。如需更长时间的数据范围，可联系运营咨询采购
