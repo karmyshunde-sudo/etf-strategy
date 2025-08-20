@@ -25,7 +25,7 @@ from flask import Flask, request, jsonify, has_app_context
 from config import Config
 from logger import get_logger
 from bs4 import BeautifulSoup
-
+from retrying import retry
 
 app = Flask(__name__)
 logger = get_logger(__name__)
@@ -1103,6 +1103,12 @@ def generate_default_daily_data(etf_code):
     
     logger.warning(f"生成了{etf_code}的默认日线数据（30天随机数据）")
     return df
+
+requests.Session().headers.update({
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Referer': 'https://quote.eastmoney.com/'
+})
+
 def get_all_etf_list():
     """从多数据源获取所有ETF列表（5层回退机制）
     返回:DataFrame: ETF列表，包含代码和名称"""
@@ -1112,56 +1118,35 @@ def get_all_etf_list():
         time.sleep(1)  # 添加基础延迟
         # 使用最新确认可用的接口
         
-        df = ak.fund_etf_spot_em()
+        @retry(stop_max_attempt_number=3, wait_fixed=2000)
+        def fetch_akshare_data():
+            """封装带重试的AkShare数据获取函数"""
+            try:
+                # 调用最新确认可用的接口
+                df = ak.fund_etf_spot_em()
+                if df.empty:
+                    raise ValueError("AkShare返回空数据")
+                return df
+            except Exception as e:
+                logger.error(f"AkShare接口调用失败: {str(e)}")
+                raise  # 触发重试
         
-        if not df.empty:
-            # 处理列名 - 根据最新AkShare文档调整
-            required_columns = {
-                '代码': 'code',
-                '名称': 'name',
-                '基金代码': 'code',
-                '基金简称': 'name',
-                'fund_code': 'code',
-                'fund_name': 'name'
-            }
-            
-            # 查找可用的列名
-            code_col = None
-            name_col = None
-            
-            for col in df.columns:
-                if col in required_columns and required_columns[col] == 'code':
-                    code_col = col
-                elif col in required_columns and required_columns[col] == 'name':
-                    name_col = col
-            
-            if not code_col or not name_col:
-                # 如果标准列名不存在，尝试模糊匹配
-                for col in df.columns:
-                    if 'code' in col.lower() or '代码' in col.lower():
-                        code_col = col
-                    elif 'name' in col.lower() or '名称' in col.lower() or '简称' in col.lower():
-                        name_col = col
-            
-            if not code_col or not name_col:
-                logger.error("无法从AkShare数据中识别出ETF代码和名称列")
-                raise Exception("无法识别列名")
-            
-            # 提取并重命名列
-            etf_list = df[[code_col, name_col]].copy()
-            etf_list.columns = ['code', 'name']
-            
-            # 添加交易所前缀处理
-            etf_list['code'] = etf_list['code'].apply(
+        df = fetch_akshare_data()
+        
+        # 数据清洗逻辑（根据实际返回结构调整）
+        required_columns = ['基金代码', '基金名称']
+        if all(col in df.columns for col in required_columns):
+            etf_list = df[required_columns].copy()
+            etf_list['code'] = etf_list['基金代码'].apply(
                 lambda x: f"sh.{x}" if str(x).startswith('5') else f"sz.{x}"
             )
-            
+            etf_list.columns = ['code', 'name']
             logger.info(f"从AkShare成功获取 {len(etf_list)} 只ETF")
             return etf_list
         else:
-            logger.warning("AkShare返回空ETF列表")
-    except AttributeError as e:
-        logger.error(f"AkShare接口错误: {str(e)} - 可能是akshare版本过旧，请升级: pip install -U akshare")
+            logger.error("AkShare返回数据缺少必要列")
+            raise ValueError("数据格式不匹配")
+            
     except Exception as e:
         logger.error(f"AkShare获取ETF列表失败: {str(e)}")
 
