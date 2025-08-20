@@ -2,6 +2,7 @@
 
 import os
 import time
+import random
 import pandas as pd
 import numpy as np
 import datetime
@@ -13,6 +14,7 @@ import baostock as bs
 import jqdatasdk as jq
 from config import Config
 from logger import get_logger
+from retrying import retry
 
 # 确保所有数据目录存在（关键修复）
 Config.init_directories()
@@ -465,15 +467,20 @@ def generate_default_daily_data(etf_code):
     logger.warning(f"生成了{etf_code}的默认日线数据（30天随机数据）")
     return df
 
+
+@retry(stop_max_attempt_number=5, wait_exponential_multiplier=1000)
+def fetch_akshare_data():
+    # 使用新的、更稳定的接口
+    return ak.fund_etf_spot_em()
+
+
 def get_all_etf_list():
     """从多数据源获取所有ETF列表
     返回:DataFrame: ETF列表，包含代码和名称"""
     # 尝试AkShare（主数据源）
     try:
         logger.info("尝试从AkShare获取ETF列表...")
-        
-        # 使用新的、更稳定的接口
-        df = ak.fund_etf_spot_em()
+        df = fetch_akshare_data()
         
         if not df.empty:
             # 处理列名
