@@ -25,7 +25,7 @@ from flask import Flask, request, jsonify, has_app_context
 from config import Config
 from logger import get_logger
 from bs4 import BeautifulSoup
-from retrying import retry
+
 
 app = Flask(__name__)
 logger = get_logger(__name__)
