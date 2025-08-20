@@ -1110,63 +1110,55 @@ requests.Session().headers.update({
 })
 
 def get_all_etf_list():
-    """从多数据源获取所有ETF列表（5层回退机制）
-    返回:DataFrame: ETF列表，包含代码和名称"""
-    # 尝试AkShare（主数据源，使用最新稳定接口）
+    """从多数据源获取所有ETF列表"""
     try:
-        logger.info("尝试从AkShare获取ETF列表（使用fund_etf_spot_em接口）...")
+        logger.info("尝试从AkShare获取ETF列表...")
         time.sleep(1)  # 添加基础延迟
-        # 使用最新确认可用的接口
         
         @retry(stop_max_attempt_number=3, wait_fixed=2000)
         def fetch_akshare_data():
-            """封装带重试的AkShare数据获取函数"""
-            try:
-                # 调用最新确认可用的接口
-                df = ak.fund_etf_spot_em()
-                if df.empty:
-                    raise ValueError("AkShare返回空数据")
-                return df
-            except Exception as e:
-                logger.error(f"AkShare接口调用失败: {str(e)}")
-                raise  # 触发重试
+            return ak.fund_etf_spot_em()
         
         df = fetch_akshare_data()
         
-        # 数据清洗逻辑（根据实际返回结构调整）
-        required_columns = ['基金代码', '基金名称']
-        if all(col in df.columns for col in required_columns):
-            etf_list = df[required_columns].copy()
-            etf_list['code'] = etf_list['基金代码'].apply(
+        if not df.empty:
+            # 动态识别列名
+            code_col = None
+            name_col = None
+            
+            for col in df.columns:
+                if '代码' in col:
+                    code_col = col
+                elif '名称' in col:
+                    name_col = col
+            
+            if code_col is None or name_col is None:
+                logger.error("无法识别ETF代码和名称列")
+                raise ValueError("数据格式不匹配")
+            
+            etf_list = df[[code_col, name_col]].copy()
+            etf_list.columns = ['code', 'name']
+            etf_list['code'] = etf_list['code'].apply(
                 lambda x: f"sh.{x}" if str(x).startswith('5') else f"sz.{x}"
             )
-            etf_list.columns = ['code', 'name']
+            
             logger.info(f"从AkShare成功获取 {len(etf_list)} 只ETF")
             return etf_list
         else:
-            logger.error("AkShare返回数据缺少必要列")
-            raise ValueError("数据格式不匹配")
-            
+            logger.warning("AkShare返回空ETF列表")
     except Exception as e:
         logger.error(f"AkShare获取ETF列表失败: {str(e)}")
 
-    # 尝试AkShare备用接口（第二数据源）
+    # 尝试备用数据源(AkShare备用接口)
     try:
-        logger.info("尝试从AkShare备用接口获取ETF列表（使用fund_etf_hist_em）...")
-        df = ak.fund_etf_hist_em(symbol="SH")
-        if df.empty:
-            df = ak.fund_etf_hist_em(symbol="SZ")
-        
+        logger.info("尝试从AkShare备用接口获取ETF列表...")
+        df = ak.fund_etf_hist_sina(symbol="etf")
         if not df.empty:
-            # 提取唯一ETF代码
-            etf_codes = df['代码'].unique()
-            etf_names = {row['代码']: row['名称'] for _, row in df.iterrows() if '代码' in row and '名称' in row}
-            
-            etf_list = pd.DataFrame({
-                'code': [f"sh.{c}" if c.startswith('5') else f"sz.{c}" for c in etf_codes],
-                'name': [etf_names.get(c, c) for c in etf_codes]
-            })
-            
+            etf_list = df[['基金代码', '基金简称']].copy()
+            etf_list.columns = ['code', 'name']
+            etf_list['code'] = etf_list['code'].apply(
+                lambda x: f"sh.{x}" if str(x).startswith('5') else f"sz.{x}"
+            )
             logger.info(f"从AkShare备用接口成功获取 {len(etf_list)} 只ETF")
             return etf_list
     except Exception as e:
