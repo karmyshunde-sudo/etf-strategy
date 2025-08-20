@@ -25,6 +25,7 @@ from flask import Flask, request, jsonify, has_app_context
 from config import Config
 from logger import get_logger
 from bs4 import BeautifulSoup
+from retrying import retry
 
 app = Flask(__name__)
 logger = get_logger(__name__)
@@ -1017,78 +1018,6 @@ def crawl_sina_finance(etf_code):
         logger.error(f"新浪财经爬取错误 {etf_code}: {str(e)}")
         return None
 
-#————8月20日增加聚宽数据源————#
-def login_joinquant():
-    """登录聚宽账户"""
-    try:
-        jq.auth(Config.JOINQUANT_USERNAME, Config.JOINQUANT_PASSWORD)
-        logger.info("聚宽账户登录成功")
-        return True
-    except Exception as e:
-        logger.error(f"聚宽账户登录失败: {str(e)}")
-        return False
-
-def get_etf_list_joinquant():
-    """从聚宽获取ETF列表"""
-    try:
-        if not login_joinquant():
-            return None
-        
-        # 获取所有ETF基金
-        etfs = jq.get_all_securities(types=['etf'])
-        if etfs is not None and not etfs.empty:
-            # 重置索引，将代码作为列
-            etfs = etfs.reset_index()
-            etfs.columns = ['code', 'name', 'start_date', 'end_date']
-            etfs = etfs[['code', 'name']]
-            
-            # 移除交易所前缀
-            etfs['code'] = etfs['code'].apply(lambda x: x.replace('.XSHG', '').replace('.XSHE', ''))
-            
-            logger.info(f"从聚宽成功获取 {len(etfs)} 只ETF")
-            return etfs
-        return None
-    except Exception as e:
-        logger.error(f"从聚宽获取ETF列表失败: {str(e)}")
-        return None
-
-def get_etf_data_joinquant(etf_code, data_type='daily', count=100):
-    """从聚宽获取ETF数据"""
-    try:
-        if not login_joinquant():
-            return None
-        
-        # 确定交易所前缀
-        if etf_code.startswith('5'):
-            jq_code = f"{etf_code}.XSHG"  # 上海交易所
-        else:
-            jq_code = f"{etf_code}.XSHE"  # 深圳交易所
-        
-        # 获取数据
-        if data_type == 'daily':
-            # 获取日线数据
-            df = jq.get_price(jq_code, end_date=datetime.datetime.now(), 
-                             frequency='daily', fields=['open', 'high', 'low', 'close', 'volume'], 
-                             skip_paused=True, count=count)
-        else:
-            # 获取分钟线数据
-            df = jq.get_price(jq_code, end_date=datetime.datetime.now(), 
-                             frequency='1m', fields=['open', 'high', 'low', 'close', 'volume'], 
-                             skip_paused=True, count=count)
-        
-        if df is not None and not df.empty:
-            # 重置索引，将日期作为列
-            df = df.reset_index()
-            df.columns = ['date', 'open', 'high', 'low', 'close', 'volume']
-            
-            logger.info(f"从聚宽成功获取 {etf_code} {data_type} 数据")
-            return df
-        return None
-    except Exception as e:
-        logger.error(f"从聚宽获取 {etf_code} 数据失败: {str(e)}")
-        return None
-#————8月20日增加聚宽数据源————#
-
 def get_etf_data(etf_code, data_type='daily'):
     """从多数据源获取ETF数据（6层回退机制）
     参数:
@@ -1132,14 +1061,7 @@ def get_etf_data(etf_code, data_type='daily'):
         logger.info(f"成功从新浪财经爬取{etf_code}数据")
         save_to_cache(etf_code, data, data_type)
         return data
-    
-    # 尝试第五数据源(聚宽)
-    data = crawl_joinquant(etf_code, data_type)
-    if data is not None and not data.empty:
-        logger.info(f"成功从聚宽爬取{etf_code}数据")
-        save_to_cache(etf_code, data, data_type)
-        return data
-    
+        
     # 尝试第六数据源(默认数据)
     if data_type == 'daily':
         logger.info(f"使用默认数据填充{etf_code}日线数据")
@@ -1187,7 +1109,9 @@ def get_all_etf_list():
     # 尝试AkShare（主数据源，使用最新稳定接口）
     try:
         logger.info("尝试从AkShare获取ETF列表（使用fund_etf_spot_em接口）...")
+        time.sleep(1)  # 添加基础延迟
         # 使用最新确认可用的接口
+        
         df = ak.fund_etf_spot_em()
         
         if not df.empty:
@@ -1350,25 +1274,7 @@ def get_all_etf_list():
     except Exception as e:
         logger.error(f"新浪财经获取ETF列表失败: {str(e)}")
 
-    # 尝试聚宽（第五数据源）
-    try:
-        logger.info("尝试从聚宽获取ETF列表...")
-        if login_joinquant():
-            df = jq.get_all_securities(types=['etf'])
-            if not df.empty:
-                df = df.reset_index()
-                df['code'] = df['code'].apply(lambda x: x.replace('.XSHE', '.sz').replace('.XSHG', '.sh'))
-                df = df[['code', 'display_name']]
-                df.columns = ['code', 'name']
-                logger.info(f"从聚宽成功获取 {len(df)} 只ETF")
-                return df
-            else:
-                logger.warning("聚宽返回空ETF列表")
-        else:
-            logger.warning("聚宽登录失败，跳过数据获取")
-    except Exception as e:
-        logger.error(f"聚宽获取ETF列表失败: {str(e)}")
-
+ 
     # 如果所有数据源都失败，返回一个默认列表
     logger.error("所有数据源均无法获取ETF列表，使用默认ETF列表")
     default_etfs = [
