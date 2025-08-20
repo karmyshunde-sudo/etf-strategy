@@ -1080,7 +1080,7 @@ def get_all_etf_list():
     返回:
         DataFrame: ETF列表，包含代码和名称
     """
- """   250820-1536修改前的代码：
+    """   250820-1536修改前的代码：
     try:
         # 从AkShare获取ETF列表（主数据源）- 使用新的接口
         logger.info("尝试从AkShare获取ETF列表...")
@@ -1096,7 +1096,7 @@ def get_all_etf_list():
             return etf_list
     except Exception as e:
         logger.error(f"AkShare获取ETF列表失败: {str(e)}")
-   """
+    """
     try:
         # 尝试从AkShare获取ETF列表（主数据源）
         logger.info("尝试从AkShare获取ETF列表...")
