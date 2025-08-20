@@ -6,6 +6,6 @@ baostock
 tushare
 pytz
 numpy
-akshare==1.17.35
+akshare>=1.17.38  # 确保使用最新版
 pandas>=1.5.3
 jqdatasdk
