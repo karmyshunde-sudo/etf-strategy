@@ -19,3 +19,5 @@ data/trade_log/
 data/arbitrage/
 data/error_log/
 data/new_stock/
+# 忽略大文件或敏感信息
+data/raw/*.csv
