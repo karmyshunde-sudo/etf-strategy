@@ -20,7 +20,7 @@ import requests
 import json
 import akshare as ak
 import baostock as bs
-mport jqdatasdk as jq
+import jqdatasdk as jq
 from flask import Flask, request, jsonify, has_app_context
 from config import Config
 from logger import get_logger
