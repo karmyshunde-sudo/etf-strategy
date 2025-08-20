@@ -468,19 +468,28 @@ def generate_default_daily_data(etf_code):
     return df
 
 
-@retry(stop_max_attempt_number=5, wait_exponential_multiplier=1000)
-def fetch_akshare_data():
-    # 使用新的、更稳定的接口
-    return ak.fund_etf_spot_em()
-
-
 def get_all_etf_list():
     """从多数据源获取所有ETF列表
     返回:DataFrame: ETF列表，包含代码和名称"""
+    
+    # 设置AkShare请求头
+    ak.set_default_headers({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Referer': 'https://quote.eastmoney.com/'
+    })
+    
+    @retry(stop_max_attempt_number=5, wait_exponential_multiplier=1000)
+    def fetch_akshare_primary():
+        # 添加1-3秒随机延迟
+        time.sleep(random.uniform(1, 3))
+        return ak.fund_etf_spot_em()
+    
     # 尝试AkShare（主数据源）
     try:
         logger.info("尝试从AkShare获取ETF列表...")
-        df = fetch_akshare_data()
+        
+        # 使用重试机制获取数据
+        df = fetch_akshare_primary()
         
         if not df.empty:
             # 处理列名
@@ -502,9 +511,15 @@ def get_all_etf_list():
         logger.error(f"AkShare获取ETF列表失败: {str(e)}")
     
     # 尝试AkShare备用接口
+    @retry(stop_max_attempt_number=3, wait_fixed=2000)
+    def fetch_akshare_backup():
+        # 添加基础延迟
+        time.sleep(1)
+        return ak.fund_etf_hist_sina(symbol="etf")
+    
     try:
         logger.info("尝试从AkShare备用接口获取ETF列表...")
-        df = ak.fund_etf_hist_sina(symbol="etf")
+        df = fetch_akshare_backup()
         if not df.empty:
             # 提取唯一ETF代码
             etf_codes = df['基金代码'].unique()
@@ -518,8 +533,8 @@ def get_all_etf_list():
             logger.info(f"从AkShare备用接口成功获取 {len(etf_list)} 只ETF")
             return etf_list
     except Exception as e:
-        logger.error(f"AkShare备用接口获取ETF列表失败: {str(e)}")
-    
+        logger.error(f"AkShare备用接口获取ETF列表失败: {str(e)}")    
+
     # 尝试Baostock
     try:
         logger.info("尝试从Baostock获取ETF列表...")
