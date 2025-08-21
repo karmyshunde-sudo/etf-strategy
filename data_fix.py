@@ -759,24 +759,15 @@ def get_new_stock_subscriptions():
         # 尝试AkShare（主数据源）
         today = get_beijing_time().strftime('%Y-%m-%d')
         df = ak.stock_xgsglb_em()
-
-        # === 关键调试语句 ===
-        print("======================================")
-        print("AkShare 返回的列名:")
-        print(df.columns.tolist())
-        print("DataFrame 前两行示例:")
-        print(df.head(2).to_dict())
-        print("======================================")
-        # === 调试语句结束 ===
         
         # 动态匹配列名
-        date_col = next((col for col in df.columns if '日期' in col or 'date' in col.lower()), None)
-        code_col = next((col for col in df.columns if '代码' in col or 'code' in col.lower()), None)
-        name_col = next((col for col in df.columns if '名称' in col or 'name' in col.lower()), None)
-        price_col = next((col for col in df.columns if '价格' in col or 'price' in col.lower()), None)
-        limit_col = next((col for col in df.columns if '上限' in col or 'limit' in col.lower()), None)
+        code_col = next((col for col in df.columns if '代码' in col), None)
+        name_col = next((col for col in df.columns if '名称' in col or '简称' in col), None)
+        price_col = next((col for col in df.columns if '价格' in col), None)
+        limit_col = next((col for col in df.columns if '上限' in col), None)
+        date_col = next((col for col in df.columns if '日期' in col), None)
         
-        if any(col is None for col in [date_col, code_col, name_col]):
+        if any(col is None for col in [code_col, name_col, date_col]):
             logger.error("AkShare返回数据缺少必要列")
             return pd.DataFrame()
         
@@ -785,16 +776,14 @@ def get_new_stock_subscriptions():
         if df.empty:
             return pd.DataFrame()
         
-        # 标准化列名
-        return df.rename(columns={
-            code_col: '股票代码',
-            name_col: '股票简称',
-            price_col: '发行价格',
-            limit_col: '申购上限',
-            date_col: '申购日期'
-        })
+        # 标准化列名并过滤有效数据
+        valid_df = df[[code_col, name_col, price_col, limit_col, date_col]].copy()
+        valid_df.columns = ['股票代码', '股票简称', '发行价格', '申购上限', '申购日期']
+        valid_df = valid_df.dropna(subset=['股票代码', '股票简称', '申购日期'])
+        
+        return valid_df
     except Exception as e:
-        logger.error(f"AkShare获取新股信息失败: {str(e)}") 
+        logger.error(f"AkShare获取新股信息失败: {str(e)}")
     
     # 尝试新浪财经（备用数据源2）
     try:
@@ -805,25 +794,21 @@ def get_new_stock_subscriptions():
         response.raise_for_status()
         data = response.json()
         
-        today = get_beijing_time().strftime('%Y-%m-%d')
         new_stocks = []
-        
-        # 确保 data 是字典且包含 'data' 键
-        if isinstance(data, dict) and 'data' in data:
-            for item in data['data']:
-                ipo_date = item.get('ipo_date', '')
-                # 标准化日期格式
-                if len(ipo_date) == 8:  # YYYYMMDD
-                    ipo_date = f"{ipo_date[:4]}-{ipo_date[4:6]}-{ipo_date[6:]}"
-                
-                if ipo_date == today:
-                    new_stocks.append({
-                        '股票代码': item.get('symbol', ''),
-                        '股票简称': item.get('name', ''),
-                        '发行价格': item.get('price', ''),
-                        '申购上限': item.get('max_purchase', ''),
-                        '申购日期': today
-                    })
+        for item in data['data']:
+            ipo_date = item.get('ipo_date', '')
+            # 标准化日期格式
+            if len(ipo_date) == 8:  # YYYYMMDD
+                ipo_date = f"{ipo_date[:4]}-{ipo_date[4:6]}-{ipo_date[6:]}"
+            
+            if ipo_date == today:
+                new_stocks.append({
+                    '股票代码': item.get('symbol', ''),
+                    '股票简称': item.get('name', ''),
+                    '发行价格': item.get('price', ''),
+                    '申购上限': item.get('max_purchase', ''),
+                    '申购日期': today
+                })
         
         if new_stocks:
             return pd.DataFrame(new_stocks)
@@ -831,7 +816,6 @@ def get_new_stock_subscriptions():
         logger.error(f"新浪财经获取新股信息失败: {str(e)}")
     
     return pd.DataFrame()
-
 def get_new_stock_listings():
     """获取当天新上市交易的新股数据"""
     try:
