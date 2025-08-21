@@ -760,34 +760,32 @@ def get_new_stock_subscriptions():
         today = get_beijing_time().strftime('%Y-%m-%d')
         df = ak.stock_xgsglb_em()
         
-        # 动态检查可用列名
-        date_cols = [col for col in df.columns if '日期' in col or 'date' in col.lower()]
-        code_cols = [col for col in df.columns if '代码' in col or 'code' in col.lower()]
-        name_cols = [col for col in df.columns if '名称' in col or 'name' in col.lower()]
+        # 动态匹配列名
+        date_col = next((col for col in df.columns if '日期' in col or 'date' in col.lower()), None)
+        code_col = next((col for col in df.columns if '代码' in col or 'code' in col.lower()), None)
+        name_col = next((col for col in df.columns if '名称' in col or 'name' in col.lower()), None)
+        price_col = next((col for col in df.columns if '价格' in col or 'price' in col.lower()), None)
+        limit_col = next((col for col in df.columns if '上限' in col or 'limit' in col.lower()), None)
         
-        if not date_cols or not code_cols or not name_cols:
-            logger.warning("AkShare返回数据缺少必要列")
+        if any(col is None for col in [date_col, code_col, name_col]):
+            logger.error("AkShare返回数据缺少必要列")
             return pd.DataFrame()
         
-        # 标准化日期格式
-        df[date_cols[0]] = pd.to_datetime(df[date_cols[0]]).dt.strftime('%Y-%m-%d')
-        
         # 筛选当天数据
-        df = df[df[date_cols[0]] == today]
+        df = df[df[date_col] == today]
         if df.empty:
             return pd.DataFrame()
         
-        # 返回标准化数据
-        return pd.DataFrame({
-            '股票代码': df[code_cols[0]],
-            '股票简称': df[name_cols[0]],
-            '发行价格': df.get('发行价格', df.get('price', '')),
-            '申购上限': df.get('申购上限', df.get('max_purchase', '')),
-            '申购日期': df[date_cols[0]]
+        # 标准化列名
+        return df.rename(columns={
+            code_col: '股票代码',
+            name_col: '股票简称',
+            price_col: '发行价格',
+            limit_col: '申购上限',
+            date_col: '申购日期'
         })
     except Exception as e:
-        logger.error(f"AkShare获取新股信息失败: {str(e)}")
-    return pd.DataFrame()    
+        logger.error(f"AkShare获取新股信息失败: {str(e)}") 
     
     # 尝试新浪财经（备用数据源2）
     try:
