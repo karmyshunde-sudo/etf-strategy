@@ -1,6 +1,7 @@
 """2025-08-20 Ver1.0 主入口文件
 所有说明查看【notes.md】"""
 
+import json
 import os
 import sys
 import time
