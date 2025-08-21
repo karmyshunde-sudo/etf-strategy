@@ -52,7 +52,12 @@ def get_cache_path(etf_code, data_type='daily'):
     """
     base_path = os.path.join(Config.RAW_DATA_DIR, 'etf_data')
     os.makedirs(base_path, exist_ok=True)
-    
+
+    # 添加路径验证
+    if not os.path.exists(base_path):
+        logger.error(f"缓存目录不存在: {base_path}")
+        return None
+        
     if data_type == 'daily':
         return os.path.join(base_path, f"{etf_code}_daily.csv")
     else:
@@ -136,7 +141,8 @@ def save_to_cache(etf_code, data, data_type='daily'):
             os.remove(cache_path)
         os.rename(temp_path, cache_path)
         
-        logger.debug(f"成功保存 {etf_code} 数据到 {cache_path}")
+        # 关键修改：将日志级别从DEBUG提升到INFO    
+        logger.info(f"成功保存 {etf_code} 数据到 {cache_path}") 
         return True
     except Exception as e:
         logger.error(f"保存 {etf_code} 数据失败: {str(e)}")
@@ -401,8 +407,15 @@ def get_etf_data(etf_code, data_type='daily'):
     if data_type == 'daily':
         data = crawl_akshare(etf_code)
         if data is not None and not data.empty:
-            logger.info(f"成功从AkShare爬取{etf_code}日线数据")
-            save_to_cache(etf_code, data, data_type)
+            logger.info(f"【数据获取】成功从AkShare爬取{etf_code}日线数据 ({len(data)}条记录)")
+            # 保存数据
+            if save_to_cache(etf_code, data, data_type):
+                # 添加额外验证
+                saved_data = load_from_cache(etf_code, data_type)
+                if saved_data is not None and not saved_data.empty:
+                    logger.info(f"【数据验证】{etf_code}数据已成功保存并可重新加载 ({len(saved_data)}条记录)")
+                else:
+                    logger.error(f"【数据验证】{etf_code}数据保存后无法重新加载")
             return data
     
     # 尝试备用数据源1(Baostock)
@@ -900,14 +913,15 @@ def cron_crawl_daily():
     if etf_list is None or etf_list.empty:
         logger.error("未获取到ETF列表，跳过爬取")
         return {"status": "skipped", "message": "No ETF list available"}
-    
+
+    logger.info(f"【任务准备】开始爬取 {len(etf_list)} 只ETF的日线数据")
+
     # 加载爬取状态
     crawl_status = get_crawl_status()
     beijing_now = get_beijing_time()
     date_str = beijing_now.strftime('%Y%m%d')
     
     # 统计
-    success = True
     success_count = 0
     failed_count = 0
     skipped_count = 0
@@ -928,6 +942,7 @@ def cron_crawl_daily():
         try:
             # 标记开始
             update_crawl_status(etf_code, 'in_progress')
+            logger.info(f"【任务开始】开始爬取 {etf_code}")
             
             data = get_etf_data(etf_code, 'daily')
             if data is None or data.empty:
@@ -960,7 +975,18 @@ def cron_crawl_daily():
             except Exception as e:
                 logger.warning(f"清理状态文件失败: {str(e)}")
     
-    return {"status": "success" if success else "error", "message": f"成功: {success_count}, 失败: {failed_count}, 跳过: {skipped_count}"}
+    # 生成汇总报告
+    total = len(etf_list)
+    result = {
+        "status": "success" if success_count > 0 and failed_count == 0 else "partial_success" if success_count > 0 else "error",
+        "message": f"成功: {success_count}, 失败: {failed_count}, 跳过: {skipped_count}",
+        "success_rate": f"{success_count/total:.1%}" if total > 0 else "0%"
+    }
+    
+    # 添加详细报告
+    logger.info(f"【任务完成】日线数据爬取完成：成功 {success_count}/{total}，失败 {failed_count}，跳过 {skipped_count} ({result['success_rate']}成功率)")
+    
+    return result
 
 def cron_crawl_intraday():
     """盘中数据爬取任务"""
