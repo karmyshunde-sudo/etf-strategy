@@ -20,6 +20,7 @@ from retrying import retry
 Config.init_directories()
 
 logger = get_logger(__name__)
+logger.setLevel(logging.DEBUG)  # 允许DEBUG日志输出
 
 def get_beijing_time():
     """获取北京时间"""
