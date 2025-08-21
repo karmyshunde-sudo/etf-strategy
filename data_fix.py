@@ -1,5 +1,6 @@
 """数据源处理模块 - 仅包含数据爬取、缓存和清理相关功能"""
 
+import logging
 import os
 import time
 import random
