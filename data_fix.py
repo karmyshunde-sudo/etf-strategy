@@ -759,6 +759,15 @@ def get_new_stock_subscriptions():
         # 尝试AkShare（主数据源）
         today = get_beijing_time().strftime('%Y-%m-%d')
         df = ak.stock_xgsglb_em()
+
+        # === 关键调试语句 ===
+        print("======================================")
+        print("AkShare 返回的列名:")
+        print(df.columns.tolist())
+        print("DataFrame 前两行示例:")
+        print(df.head(2).to_dict())
+        print("======================================")
+        # === 调试语句结束 ===
         
         # 动态匹配列名
         date_col = next((col for col in df.columns if '日期' in col or 'date' in col.lower()), None)
