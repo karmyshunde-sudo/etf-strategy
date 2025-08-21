@@ -833,8 +833,8 @@ def get_new_stock_subscriptions(test=False):
                                 code_col: '代码',
                                 name_col: '简称'
                             })
-            except Exception as e:
-                logger.error(f"AkShare获取{date_str}可转债申购信息失败: {str(e)}")
+        except Exception as e:
+            logger.error(f"AkShare获取{date_str}可转债申购信息失败: {str(e)}")
         
         # 合并股票和可转债数据
         if not stock_data.empty or not bond_data.empty:
