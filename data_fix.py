@@ -808,6 +808,19 @@ def get_new_stock_subscriptions(test=False):
             })
             response.raise_for_status()
             data = response.json()
+
+            # === 关键调试语句 ===
+            logger.debug("新浪财经返回的数据结构:")
+            logger.debug(type(data))  # 输出数据类型
+            if isinstance(data, list) and len(data) > 0:
+                logger.debug("第一条数据示例:")
+                logger.debug(data[0])
+            elif isinstance(data, dict):
+                logger.debug("数据字典键:")
+                logger.debug(data.keys())
+            else:
+                logger.debug("数据为空或非列表/字典")
+            # === 调试语句结束 ===            
             
             new_stocks = []
             for item in data['data']:
