@@ -54,3 +54,4 @@
 2025-08-21 12:11:30,827 - data_fix - ERROR - 新浪财经获取2025-08-01新股信息失败: list indices must be integers or slices, not str
 2025-08-21 12:11:42,142 - data_fix - ERROR - 新浪财经获取2025-07-31新股信息失败: list indices must be integers or slices, not str
 2025-08-21 13:48:27,001 - data_fix - ERROR - AkShare获取2025-08-21可转债申购信息失败: module 'akshare' has no attribute 'bond_cb_issue'
+2025-08-21 15:26:07,488 - data_fix - ERROR - AkShare获取2025-08-21可转债申购信息失败: module 'akshare' has no attribute 'bond_cb_redeem_em'
