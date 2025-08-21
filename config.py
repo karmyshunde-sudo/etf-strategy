@@ -1,4 +1,4 @@
-"""版本250820-Ver2.0"""
+"""版本250820-Ver3.0"""
 import os
 
 class Config:
