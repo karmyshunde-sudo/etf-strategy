@@ -221,8 +221,9 @@ def push_new_stock_info(test=False):
     参数:
         test: 是否为测试模式
     返回:
-        bool: 是否成功"""
-    new_stocks = get_new_stock_subscriptions()
+        bool: 是否成功
+    """
+    new_stocks = get_new_stock_subscriptions(test=test)
     if new_stocks is None or new_stocks.empty:
         message = "今天没有新股可供申购"
     else:
@@ -245,8 +246,9 @@ def push_listing_info(test=False):
     参数:
         test: 是否为测试模式
     返回:
-        bool: 是否成功"""
-    new_listings = get_new_stock_listings()
+        bool: 是否成功
+    """
+    new_listings = get_new_stock_listings(test=test)
     if new_listings is None or new_listings.empty:
         message = "今天没有新上市股票、可转债、债券可供交易"
     else:
