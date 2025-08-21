@@ -52,6 +52,8 @@ def get_cache_path(etf_code, data_type='daily'):
         str: 缓存文件路径
     """
     base_path = os.path.join(Config.RAW_DATA_DIR, 'etf_data')
+    # 移除多余的 'etf-strategy' 目录
+    base_path = base_path.replace('/etf-strategy', '')
     os.makedirs(base_path, exist_ok=True)
 
     # 添加路径验证
@@ -993,7 +995,22 @@ def cron_crawl_daily():
             "skipped_count": skipped_count
         }
     
-    return {"status": "success" if success else "error", "message": f"成功: {success_count}, 失败: {failed_count}, 跳过: {skipped_count}"}
+    # 在所有数据保存完成后提交到 Git
+    try:
+        # 添加所有更改
+        subprocess.run(["git", "add", "."], check=True)
+        
+        # 提交更改
+        commit_msg = f"Auto save ETF data {get_beijing_time().strftime('%Y-%m-%d %H:%M')}"
+        subprocess.run(["git", "commit", "-m", commit_msg], check=True)
+        
+        # 推送到远程仓库
+        subprocess.run(["git", "push", "origin", "main"], check=True)
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Git push failed: {e.output.decode()}")
+        raise
+    
+    return {"status": "success", "message": f"成功: {success_count}, 失败: {failed_count}"}
 
 def cron_crawl_intraday():
     """盘中数据爬取任务"""
