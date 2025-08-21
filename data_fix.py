@@ -975,18 +975,24 @@ def cron_crawl_daily():
             except Exception as e:
                 logger.warning(f"清理状态文件失败: {str(e)}")
     
-    # 生成汇总报告
-    total = len(etf_list)
-    result = {
-        "status": "success" if success_count > 0 and failed_count == 0 else "partial_success" if success_count > 0 else "error",
-        "message": f"成功: {success_count}, 失败: {failed_count}, 跳过: {skipped_count}",
-        "success_rate": f"{success_count/total:.1%}" if total > 0 else "0%"
-    }
+    # === 关键修改：添加Git推送逻辑 ===
+    try:
+        if success_count > 0:  # 只有成功爬取数据才推送
+            logger.info("开始Git推送流程...")
+            git_push()  # 调用推送函数
+            logger.info("Git推送成功完成")
+    except Exception as e:
+        logger.critical(f"Git推送失败，终止任务执行: {str(e)}")
+        # 关键修改：出错立即终止，不再继续
+        return {
+            "status": "error",
+            "message": f"数据爬取完成但Git推送失败: {str(e)}",
+            "success_count": success_count,
+            "failed_count": failed_count,
+            "skipped_count": skipped_count
+        }
     
-    # 添加详细报告
-    logger.info(f"【任务完成】日线数据爬取完成：成功 {success_count}/{total}，失败 {failed_count}，跳过 {skipped_count} ({result['success_rate']}成功率)")
-    
-    return result
+    return {"status": "success" if success else "error", "message": f"成功: {success_count}, 失败: {failed_count}, 跳过: {skipped_count}"}
 
 def cron_crawl_intraday():
     """盘中数据爬取任务"""
@@ -1131,3 +1137,75 @@ def resume_crawl():
         "success": success_count,
         "failed": failed_count
     }
+
+def git_push():
+    """推送更改到远程仓库，失败时立即终止"""
+    try:
+        logger.info("【Git操作】开始同步远程仓库")
+        
+        # 1. 拉取远程最新代码（解决 rejected 问题）
+        logger.info("【Git操作】拉取远程最新代码")
+        pull_result = subprocess.run(
+            ["git", "pull", "origin", "main"], 
+            capture_output=True, 
+            text=True,
+            check=False  # 不立即抛出异常，先检查输出
+        )
+        
+        # 检查拉取结果
+        if pull_result.returncode != 0:
+            logger.warning(f"【Git操作】拉取远程代码时警告: {pull_result.stderr.strip()}")
+            # 即使有警告也继续，因为可能只是没有新提交
+        
+        # 2. 添加数据目录更改
+        logger.info("【Git操作】添加数据目录更改")
+        subprocess.run(
+            ["git", "add", "data/"], 
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        
+        # 3. 检查是否有更改需要提交
+        status_result = subprocess.run(
+            ["git", "status", "--porcelain", "data/"], 
+            capture_output=True, 
+            text=True
+        )
+        
+        if not status_result.stdout.strip():
+            logger.info("【Git操作】无数据更改，跳过提交")
+            return True
+            
+        # 4. 提交更改
+        commit_msg = f"自动保存ETF数据 {get_beijing_time().strftime('%Y-%m-%d %H:%M')}"
+        logger.info(f"【Git操作】提交更改: {commit_msg}")
+        subprocess.run(
+            ["git", "commit", "-m", commit_msg], 
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        
+        # 5. 推送到远程仓库
+        logger.info("【Git操作】推送更改到远程仓库")
+        push_result = subprocess.run(
+            ["git", "push", "origin", "main"], 
+            capture_output=True, 
+            text=True,
+            check=True
+        )
+        
+        logger.info("【Git操作】成功推送到远程仓库")
+        return True
+        
+    except subprocess.CalledProcessError as e:
+        error_msg = f"Git操作失败: {e}\n输出: {e.stdout}\n错误: {e.stderr}"
+        logger.error(error_msg)
+        # 关键修改：出错立即终止，不再继续
+        raise RuntimeError(error_msg) from None
+    except Exception as e:
+        error_msg = f"Git操作异常: {str(e)}"
+        logger.error(error_msg)
+        # 关键修改：出错立即终止，不再继续
+        raise RuntimeError(error_msg) from None
