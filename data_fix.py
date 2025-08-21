@@ -798,21 +798,24 @@ def get_new_stock_subscriptions(test=False):
                                 code_col: '代码',
                                 name_col: '简称'
                             })
-        except Exception as e:
+            except Exception as e:
             logger.error(f"AkShare获取{date_str}股票申购信息失败: {str(e)}")
         
         # === 获取可转债申购信息 ===
         bond_data = pd.DataFrame()
         try:
-            # 使用可转债专用接口
-            df = ak.bond_cb_issue()
+            # 使用正确的可转债接口
+            df = ak.bond_cb_redeem_em()
             if not df.empty:
-                # 动态匹配列名
-                date_col = next((col for col in df.columns if '申购日' in col), None)
+                # 打印列名用于调试
+                logger.debug(f"可转债数据列名: {df.columns.tolist()}")
                 
-                if date_col and date_col in df.columns:
+                # 动态匹配申购日期列
+                subscribe_date_col = next((col for col in df.columns if '申购' in col and '日期' in col), None)
+                
+                if subscribe_date_col and subscribe_date_col in df.columns:
                     # 筛选目标日期数据
-                    df = df[df[date_col] == date_str]
+                    df = df[df[subscribe_date_col] == date_str]
                     if not df.empty:
                         # 提取必要列
                         code_col = next((col for col in df.columns if '代码' in col), None)
@@ -830,7 +833,7 @@ def get_new_stock_subscriptions(test=False):
                                 code_col: '代码',
                                 name_col: '简称'
                             })
-        except Exception as e:
+            except Exception as e:
             logger.error(f"AkShare获取{date_str}可转债申购信息失败: {str(e)}")
         
         # 合并股票和可转债数据
@@ -841,6 +844,7 @@ def get_new_stock_subscriptions(test=False):
     
         logger.warning(f"{'测试模式' if test else '正常模式'}: 未找到申购数据")
         return pd.DataFrame()        
+        
         # 尝试新浪财经（备用数据源2）
         try:
             sina_url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=1&num=100&sort=symbol&asc=1&node=iponew&symbol=&_s_r_a=page"
