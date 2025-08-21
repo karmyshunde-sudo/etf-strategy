@@ -754,98 +754,53 @@ def mark_listing_info_pushed():
         f.write(get_beijing_time().strftime('%Y-%m-%d'))
 
 def get_new_stock_subscriptions(test=False):
-    """获取当天新股数据
-    参数:
-        test: 是否为测试模式（测试模式下若当天无数据则回溯21天）"""
-    """获取当天新股和可转债申购数据"""
-    today = get_beijing_time().strftime('%Y-%m-%d')
+    """获取当天新股申购数据（确保能正确获取所有申购数据）"""
+    # 获取当前日期
+    today = get_beijing_time().date()  # 直接使用date对象，而非字符串
     
     # 如果是测试模式，准备回溯21天
     if test:
-        dates_to_try = [(datetime.datetime.now() - datetime.timedelta(days=i)).strftime('%Y-%m-%d') 
+        dates_to_try = [(datetime.datetime.now().date() - datetime.timedelta(days=i)) 
                        for i in range(0, 22)]
     else:
         dates_to_try = [today]
     
-    for date_str in dates_to_try:
-        logger.info(f"{'测试模式' if test else '正常模式'}: 尝试获取 {date_str} 的新股和可转债申购数据")
+    for date_obj in dates_to_try:
+        date_str = date_obj.strftime('%Y-%m-%d')
+        logger.info(f"{'测试模式' if test else '正常模式'}: 尝试获取 {date_str} 的申购数据")
         
-        # === 获取股票申购信息 ===
-        stock_data = pd.DataFrame()
         try:
+            # 尝试AkShare（主数据源）
             df = ak.stock_xgsglb_em()
-            if not df.empty:
-                # 动态匹配列名
-                date_col = next((col for col in df.columns if '日期' in col), None)
+            if df.empty:
+                logger.warning(f"AkShare返回空数据")
+                continue
                 
-                if date_col and date_col in df.columns:
-                    # 筛选目标日期数据
-                    df = df[df[date_col] == date_str]
-                    if not df.empty:
-                        # 提取必要列
-                        code_col = next((col for col in df.columns if '代码' in col), None)
-                        name_col = next((col for col in df.columns if '名称' in col or '简称' in col), None)
-                        price_col = next((col for col in df.columns if '价格' in col), None)
-                        limit_col = next((col for col in df.columns if '上限' in col), None)
-                        
-                        if all(col is not None for col in [code_col, name_col]):
-                            valid_df = df[[code_col, name_col]]
-                            if price_col: valid_df['发行价格'] = df[price_col]
-                            if limit_col: valid_df['申购上限'] = df[limit_col]
-                            valid_df['申购日期'] = date_str
-                            valid_df['类型'] = '股票'
-                            stock_data = valid_df.rename(columns={
-                                code_col: '代码',
-                                name_col: '简称'
-                            })
+            # 关键修复：处理日期列
+            if '申购日期' in df.columns:
+                # 确保日期列是datetime.date类型
+                if not pd.api.types.is_datetime64_any_dtype(df['申购日期']):
+                    # 尝试转换为date对象
+                    try:
+                        df['申购日期'] = pd.to_datetime(df['申购日期']).dt.date
+                    except:
+                        logger.warning("无法转换申购日期列，跳过日期筛选")
+                        continue
+                
+                # 使用date对象直接比较（避免字符串格式问题）
+                df = df[df['申购日期'] == date_obj]
+                if not df.empty:
+                    logger.info(f"从AkShare获取{date_str}的{len(df)}条申购数据")
+                    
+                    # 简化处理：直接返回原始数据，不做额外处理
+                    return df
+            
+            logger.warning(f"AkShare返回数据但无匹配 {date_str}")
         except Exception as e:
-            logger.error(f"AkShare获取{date_str}股票申购信息失败: {str(e)}")
+            logger.error(f"AkShare获取{date_str}申购信息失败: {str(e)}")
+            logger.error(f"错误详情: {type(e).__name__}, {str(e)}")
         
-        # === 获取可转债申购信息 ===
-        bond_data = pd.DataFrame()
-        try:
-            # 使用正确的可转债接口
-            df = ak.bond_cb_redeem_em()
-            if not df.empty:
-                # 打印列名用于调试
-                logger.debug(f"可转债数据列名: {df.columns.tolist()}")
-                
-                # 动态匹配申购日期列
-                subscribe_date_col = next((col for col in df.columns if '申购' in col and '日期' in col), None)
-                
-                if subscribe_date_col and subscribe_date_col in df.columns:
-                    # 筛选目标日期数据
-                    df = df[df[subscribe_date_col] == date_str]
-                    if not df.empty:
-                        # 提取必要列
-                        code_col = next((col for col in df.columns if '代码' in col), None)
-                        name_col = next((col for col in df.columns if '名称' in col or '简称' in col), None)
-                        price_col = next((col for col in df.columns if '价格' in col), None)
-                        limit_col = next((col for col in df.columns if '上限' in col), None)
-                        
-                        if all(col is not None for col in [code_col, name_col]):
-                            valid_df = df[[code_col, name_col]]
-                            if price_col: valid_df['发行价格'] = df[price_col]
-                            if limit_col: valid_df['申购上限'] = df[limit_col]
-                            valid_df['申购日期'] = date_str
-                            valid_df['类型'] = '可转债'
-                            bond_data = valid_df.rename(columns={
-                                code_col: '代码',
-                                name_col: '简称'
-                            })
-        except Exception as e:
-            logger.error(f"AkShare获取{date_str}可转债申购信息失败: {str(e)}")
-        
-        # 合并股票和可转债数据
-        if not stock_data.empty or not bond_data.empty:
-            combined_data = pd.concat([stock_data, bond_data], ignore_index=True)
-            logger.info(f"成功获取{date_str}的{len(combined_data)}条申购数据")
-            return combined_data
-    
-        logger.warning(f"{'测试模式' if test else '正常模式'}: 未找到申购数据")
-        return pd.DataFrame()        
-        
-        # 尝试新浪财经（备用数据源2）
+        # 尝试新浪财经（备用数据源）
         try:
             sina_url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=1&num=100&sort=symbol&asc=1&node=iponew&symbol=&_s_r_a=page"
             response = requests.get(sina_url, timeout=15, headers={
@@ -853,43 +808,27 @@ def get_new_stock_subscriptions(test=False):
             })
             response.raise_for_status()
             data = response.json()
-
-            # === 关键调试语句 ===
-            logger.debug("新浪财经返回的数据结构:")
-            logger.debug(type(data))  # 输出数据类型
-            if isinstance(data, list) and len(data) > 0:
-                logger.debug("第一条数据示例:")
-                logger.debug(data[0])
-            elif isinstance(data, dict):
-                logger.debug("数据字典键:")
-                logger.debug(data.keys())
-            else:
-                logger.debug("数据为空或非列表/字典")
-            # === 调试语句结束 ===            
             
             new_stocks = []
             for item in data['data']:
                 ipo_date = item.get('ipo_date', '')
-                # 标准化日期格式
+                # 处理不同日期格式
                 if len(ipo_date) == 8:  # YYYYMMDD
-                    ipo_date = f"{ipo_date[:4]}-{ipo_date[4:6]}-{ipo_date[6:]}"
+                    ipo_date = datetime.date(int(ipo_date[:4]), int(ipo_date[4:6]), int(ipo_date[6:]))
+                elif len(ipo_date) == 10:  # YYYY-MM-DD
+                    ipo_date = datetime.date.fromisoformat(ipo_date)
                 
-                if ipo_date == date_str:
-                    new_stocks.append({
-                        '股票代码': item.get('symbol', ''),
-                        '股票简称': item.get('name', ''),
-                        '发行价格': item.get('price', ''),
-                        '申购上限': item.get('max_purchase', ''),
-                        '申购日期': date_str
-                    })
+                # 使用date对象比较
+                if isinstance(ipo_date, datetime.date) and ipo_date == date_obj:
+                    new_stocks.append(item)
             
             if new_stocks:
-                logger.info(f"从新浪财经获取{date_str}的新股数据")
+                logger.info(f"从新浪财经获取{date_str}的{len(new_stocks)}条申购数据")
                 return pd.DataFrame(new_stocks)
         except Exception as e:
-            logger.error(f"新浪财经获取{date_str}新股信息失败: {str(e)}")
+            logger.error(f"新浪财经获取{date_str}申购信息失败: {str(e)}")
     
-    logger.warning(f"{'测试模式' if test else '正常模式'}: 未找到新股数据")
+    logger.warning(f"{'测试模式' if test else '正常模式'}: 未找到申购数据")
     return pd.DataFrame()
 
 def get_new_stock_listings(test=False):
