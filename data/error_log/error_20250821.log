@@ -15,3 +15,8 @@
 2025-08-21 04:52:56,161 - data_fix - ERROR - 聚宽获取ETF列表失败: 'code'
 2025-08-21 04:52:56,161 - data_fix - ERROR - 所有数据源均无法获取ETF列表，使用默认ETF列表
 2025-08-21 04:52:57,513 - __main__ - ERROR - 更新套利状态失败: name 'json' is not defined
+2025-08-21 05:48:04,563 - data_fix - ERROR - AkShare返回数据缺少必要列
+2025-08-21 05:48:04,564 - data_fix - ERROR - AkShare获取ETF列表失败: 数据格式不匹配
+2025-08-21 05:48:12,864 - data_fix - ERROR - 聚宽获取ETF列表失败: 'code'
+2025-08-21 05:48:12,865 - data_fix - ERROR - 所有数据源均无法获取ETF列表，使用默认ETF列表
+2025-08-21 05:48:13,913 - __main__ - ERROR - 更新套利状态失败: name 'json' is not defined
