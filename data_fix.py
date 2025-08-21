@@ -472,11 +472,6 @@ def get_all_etf_list():
     """从多数据源获取所有ETF列表
     返回:DataFrame: ETF列表，包含代码和名称"""
     
-    # 设置AkShare请求头
-    ak.set_default_headers({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Referer': 'https://quote.eastmoney.com/'
-    })
     
     @retry(stop_max_attempt_number=5, wait_exponential_multiplier=1000)
     def fetch_akshare_primary():
