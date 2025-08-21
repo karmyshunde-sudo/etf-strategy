@@ -753,122 +753,195 @@ def mark_listing_info_pushed():
     with open(Config.LISTING_PUSHED_FLAG, 'w') as f:
         f.write(get_beijing_time().strftime('%Y-%m-%d'))
 
-def get_new_stock_subscriptions():
-    """获取当天新股数据"""
-    try:
-        # 尝试AkShare（主数据源）
-        today = get_beijing_time().strftime('%Y-%m-%d')
-        df = ak.stock_xgsglb_em()
-        
-        # 动态匹配列名
-        code_col = next((col for col in df.columns if '代码' in col), None)
-        name_col = next((col for col in df.columns if '名称' in col or '简称' in col), None)
-        price_col = next((col for col in df.columns if '价格' in col), None)
-        limit_col = next((col for col in df.columns if '上限' in col), None)
-        date_col = next((col for col in df.columns if '日期' in col), None)
-        
-        if any(col is None for col in [code_col, name_col, date_col]):
-            logger.error("AkShare返回数据缺少必要列")
-            return pd.DataFrame()
-        
-        # 筛选当天数据
-        df = df[df[date_col] == today]
-        if df.empty:
-            return pd.DataFrame()
-        
-        # 标准化列名并过滤有效数据
-        valid_df = df[[code_col, name_col, price_col, limit_col, date_col]].copy()
-        valid_df.columns = ['股票代码', '股票简称', '发行价格', '申购上限', '申购日期']
-        valid_df = valid_df.dropna(subset=['股票代码', '股票简称', '申购日期'])
-        
-        return valid_df
-    except Exception as e:
-        logger.error(f"AkShare获取新股信息失败: {str(e)}")
-    
-    # 尝试新浪财经（备用数据源2）
-    try:
-        sina_url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=1&num=100&sort=symbol&asc=1&node=iponew&symbol=&_s_r_a=page"
-        response = requests.get(sina_url, timeout=15, headers={
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        })
-        response.raise_for_status()
-        data = response.json()
-        
-        new_stocks = []
-        for item in data['data']:
-            ipo_date = item.get('ipo_date', '')
-            # 标准化日期格式
-            if len(ipo_date) == 8:  # YYYYMMDD
-                ipo_date = f"{ipo_date[:4]}-{ipo_date[4:6]}-{ipo_date[6:]}"
-            
-            if ipo_date == today:
-                new_stocks.append({
-                    '股票代码': item.get('symbol', ''),
-                    '股票简称': item.get('name', ''),
-                    '发行价格': item.get('price', ''),
-                    '申购上限': item.get('max_purchase', ''),
-                    '申购日期': today
-                })
-        
-        if new_stocks:
-            return pd.DataFrame(new_stocks)
-    except Exception as e:
-        logger.error(f"新浪财经获取新股信息失败: {str(e)}")
-    
-    return pd.DataFrame()
-def get_new_stock_listings():
-    """获取当天新上市交易的新股数据"""
+def get_new_stock_subscriptions(test=False):
+    """获取当天新股数据
+    参数:
+        test: 是否为测试模式（测试模式下若当天无数据则回溯21天）"""
     today = get_beijing_time().strftime('%Y-%m-%d')
-    try:
-        df = ak.stock_xgsglb_em(symbol="全部股票")
-        
-        # 动态匹配列名
-        code_col = next((col for col in df.columns if '代码' in col), None)
-        name_col = next((col for col in df.columns if '名称' in col or '简称' in col), None)
-        price_col = next((col for col in df.columns if '价格' in col), None)
-        date_col = next((col for col in df.columns if '上市日期' in col), None)
-        
-        if any(col is None for col in [code_col, name_col, date_col]):
-            logger.error("AkShare返回数据缺少必要列")
-            return pd.DataFrame()
-        
-        # 筛选当天数据
-        df = df[df[date_col] == today]
-        if df.empty:
-            return pd.DataFrame()
-        
-        # 标准化列名并过滤有效数据
-        valid_df = df[[code_col, name_col, price_col, date_col]].copy()
-        valid_df.columns = ['股票代码', '股票简称', '发行价格', '上市日期']
-        valid_df = valid_df.dropna(subset=['股票代码', '股票简称', '上市日期'])
-        
-        return valid_df
-    except Exception as e:
-        logger.error(f"AkShare获取新上市股票信息失败: {str(e)}")
     
-    # 尝试新浪财经（备用数据源2）
-    try:
-        logger.info("尝试从新浪财经获取新上市交易股票信息...")
-        sina_url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=1&num=100&sort=symbol&asc=1&node=iponew&symbol=&_s_r_a=page"
-        response = requests.get(sina_url, timeout=15)
-        response.raise_for_status()
-        data = response.json()
-        new_listings = []
-        for item in data['data']:
-            if item.get('listing_date') == today:
-                new_listings.append({
-                    'code': item.get('symbol'),
-                    'name': item.get('name'),
-                    'issue_price': item.get('price'),
-                    'max_purchase': item.get('max_purchase'),
-                    'listing_date': item.get('listing_date')
-                })
-        
-        if new_listings:
-            return pd.DataFrame(new_listings)
-    except Exception as e:
-        logger.error(f"新浪财经获取新上市交易股票信息失败: {str(e)}")
+    # 如果是测试模式，准备回溯21天
+    if test:
+        dates_to_try = [(datetime.datetime.now() - datetime.timedelta(days=i)).strftime('%Y-%m-%d') 
+                       for i in range(0, 22)]
+    else:
+        dates_to_try = [today]
     
+    for date_str in dates_to_try:
+        logger.info(f"{'测试模式' if test else '正常模式'}: 尝试获取 {date_str} 的新股数据")
+        
+        # 尝试AkShare（主数据源）
+        try:
+            df = ak.stock_xgsglb_em()
+            if not df.empty:
+                # 动态匹配列名
+                date_col = next((col for col in df.columns if '日期' in col), None)
+                
+                if date_col and date_col in df.columns:
+                    # 筛选目标日期数据
+                    df = df[df[date_col] == date_str]
+                    if not df.empty:
+                        # 提取必要列
+                        code_col = next((col for col in df.columns if '代码' in col), None)
+                        name_col = next((col for col in df.columns if '名称' in col or '简称' in col), None)
+                        price_col = next((col for col in df.columns if '价格' in col), None)
+                        limit_col = next((col for col in df.columns if '上限' in col), None)
+                        
+                        if all(col is not None for col in [code_col, name_col]):
+                            valid_df = df[[code_col, name_col]]
+                            if price_col: valid_df['发行价格'] = df[price_col]
+                            if limit_col: valid_df['申购上限'] = df[limit_col]
+                            valid_df['申购日期'] = date_str
+                            
+                            logger.info(f"从AkShare获取{date_str}的新股数据")
+                            return valid_df.rename(columns={
+                                code_col: '股票代码',
+                                name_col: '股票简称'
+                            })
+        except Exception as e:
+            logger.error(f"AkShare获取{date_str}新股信息失败: {str(e)}")
+        
+        # 尝试新浪财经（备用数据源2）
+        try:
+            sina_url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=1&num=100&sort=symbol&asc=1&node=iponew&symbol=&_s_r_a=page"
+            response = requests.get(sina_url, timeout=15, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            })
+            response.raise_for_status()
+            data = response.json()
+            
+            new_stocks = []
+            for item in data['data']:
+                ipo_date = item.get('ipo_date', '')
+                # 标准化日期格式
+                if len(ipo_date) == 8:  # YYYYMMDD
+                    ipo_date = f"{ipo_date[:4]}-{ipo_date[4:6]}-{ipo_date[6:]}"
+                
+                if ipo_date == date_str:
+                    new_stocks.append({
+                        '股票代码': item.get('symbol', ''),
+                        '股票简称': item.get('name', ''),
+                        '发行价格': item.get('price', ''),
+                        '申购上限': item.get('max_purchase', ''),
+                        '申购日期': date_str
+                    })
+            
+            if new_stocks:
+                logger.info(f"从新浪财经获取{date_str}的新股数据")
+                return pd.DataFrame(new_stocks)
+        except Exception as e:
+            logger.error(f"新浪财经获取{date_str}新股信息失败: {str(e)}")
+    
+    logger.warning(f"{'测试模式' if test else '正常模式'}: 未找到新股数据")
+    return pd.DataFrame()
+
+def get_new_stock_listings(test=False):
+    """获取当天新上市交易的新股数据
+    参数:
+        test: 是否为测试模式（测试模式下若当天无数据则回溯21天）"""
+    today = get_beijing_time().strftime('%Y-%m-%d')
+    
+    # 如果是测试模式，准备回溯21天
+    if test:
+        dates_to_try = [(datetime.datetime.now() - datetime.timedelta(days=i)).strftime('%Y-%m-%d') 
+                       for i in range(0, 22)]
+    else:
+        dates_to_try = [today]
+    
+    for date_str in dates_to_try:
+        logger.info(f"{'测试模式' if test else '正常模式'}: 尝试获取 {date_str} 的新上市交易数据")
+        
+        try:
+            # 尝试AkShare（主数据源）
+            df = ak.stock_xgsglb_em()
+            if not df.empty:
+                # 动态匹配上市日期列
+                listing_date_col = next((col for col in df.columns if '上市日期' in col), None)
+                
+                if listing_date_col and listing_date_col in df.columns:
+                    # 筛选目标日期数据
+                    df = df[df[listing_date_col] == date_str]
+                    if not df.empty:
+                        # 提取必要列
+                        code_col = next((col for col in df.columns if '代码' in col), None)
+                        name_col = next((col for col in df.columns if '名称' in col or '简称' in col), None)
+                        price_col = next((col for col in df.columns if '价格' in col), None)
+                        
+                        if all(col is not None for col in [code_col, name_col]):
+                            valid_df = df[[code_col, name_col]]
+                            if price_col: valid_df['发行价格'] = df[price_col]
+                            valid_df['上市日期'] = date_str
+                            
+                            logger.info(f"从AkShare获取{date_str}的新上市交易数据")
+                            return valid_df.rename(columns={
+                                code_col: '股票代码',
+                                name_col: '股票简称'
+                            })
+        except Exception as e:
+            logger.error(f"AkShare获取{date_str}新上市交易信息失败: {str(e)}")
+        
+        # 尝试其他数据源...
+        try:
+            # 尝试Baostock（备用数据源1）
+            login_result = bs.login()
+            if login_result.error_code != '0':
+                logger.error(f"Baostock登录失败: {login_result.error_msg}")
+                raise Exception("Baostock登录失败")
+            
+            # 获取新股列表
+            rs = bs.query_stock_new()
+            if rs.error_code != '0':
+                logger.error(f"Baostock查询失败: {rs.error_msg}")
+                return pd.DataFrame()
+            
+            # 转换为DataFrame
+            data_list = []
+            while (rs.error_code == '0') & rs.next():
+                data_list.append(rs.get_row_data())
+            
+            if data_list:
+                df = pd.DataFrame(data_list, columns=rs.fields)
+                # 标准化日期格式
+                df['ipoDate'] = pd.to_datetime(df['ipoDate']).dt.strftime('%Y-%m-%d')
+                df = df[df['ipoDate'] == date_str]
+                if not df.empty:
+                    return df[['code', 'code_name', 'price', 'ipoDate']].rename(columns={
+                        'code': '股票代码',
+                        'code_name': '股票简称',
+                        'price': '发行价格',
+                        'ipoDate': '上市日期'
+                    })
+        except Exception as e:
+            logger.error(f"Baostock获取{date_str}新上市交易信息失败: {str(e)}")
+        
+        # 尝试新浪财经（备用数据源2）
+        try:
+            sina_url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=1&num=100&sort=symbol&asc=1&node=iponew&symbol=&_s_r_a=page"
+            response = requests.get(sina_url, timeout=15)
+            response.raise_for_status()
+            data = response.json()
+            
+            new_listings = []
+            for item in data['data']:
+                listing_date = item.get('listing_date', '')
+                # 标准化日期格式
+                if len(listing_date) == 8:  # YYYYMMDD
+                    listing_date = f"{listing_date[:4]}-{listing_date[4:6]}-{listing_date[6:]}"
+                
+                if listing_date == date_str:
+                    new_listings.append({
+                        '股票代码': item.get('symbol'),
+                        '股票简称': item.get('name'),
+                        '发行价格': item.get('price'),
+                        '上市日期': listing_date
+                    })
+            
+            if new_listings:
+                logger.info(f"从新浪财经获取{date_str}的新上市交易数据")
+                return pd.DataFrame(new_listings)
+        except Exception as e:
+            logger.error(f"新浪财经获取{date_str}新上市交易信息失败: {str(e)}")
+    
+    logger.warning(f"{'测试模式' if test else '正常模式'}: 未找到新上市交易数据")
     return pd.DataFrame()
 
 def cleanup_directory(directory, days_to_keep=None):
