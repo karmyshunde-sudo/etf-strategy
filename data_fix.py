@@ -798,8 +798,8 @@ def get_new_stock_subscriptions(test=False):
                                 code_col: '代码',
                                 name_col: '简称'
                             })
-            except Exception as e:
-                logger.error(f"AkShare获取{date_str}股票申购信息失败: {str(e)}")
+        except Exception as e:
+            logger.error(f"AkShare获取{date_str}股票申购信息失败: {str(e)}")
         
         # === 获取可转债申购信息 ===
         bond_data = pd.DataFrame()
