@@ -757,6 +757,7 @@ def get_new_stock_subscriptions(test=False):
     """获取当天新股数据
     参数:
         test: 是否为测试模式（测试模式下若当天无数据则回溯21天）"""
+    """获取当天新股和可转债申购数据"""
     today = get_beijing_time().strftime('%Y-%m-%d')
     
     # 如果是测试模式，准备回溯21天
@@ -767,9 +768,10 @@ def get_new_stock_subscriptions(test=False):
         dates_to_try = [today]
     
     for date_str in dates_to_try:
-        logger.info(f"{'测试模式' if test else '正常模式'}: 尝试获取 {date_str} 的新股数据")
+        logger.info(f"{'测试模式' if test else '正常模式'}: 尝试获取 {date_str} 的新股和可转债申购数据")
         
-        # 尝试AkShare（主数据源）
+        # === 获取股票申购信息 ===
+        stock_data = pd.DataFrame()
         try:
             df = ak.stock_xgsglb_em()
             if not df.empty:
@@ -791,15 +793,54 @@ def get_new_stock_subscriptions(test=False):
                             if price_col: valid_df['发行价格'] = df[price_col]
                             if limit_col: valid_df['申购上限'] = df[limit_col]
                             valid_df['申购日期'] = date_str
-                            
-                            logger.info(f"从AkShare获取{date_str}的新股数据")
-                            return valid_df.rename(columns={
-                                code_col: '股票代码',
-                                name_col: '股票简称'
+                            valid_df['类型'] = '股票'
+                            stock_data = valid_df.rename(columns={
+                                code_col: '代码',
+                                name_col: '简称'
                             })
         except Exception as e:
-            logger.error(f"AkShare获取{date_str}新股信息失败: {str(e)}")
+            logger.error(f"AkShare获取{date_str}股票申购信息失败: {str(e)}")
         
+        # === 获取可转债申购信息 ===
+        bond_data = pd.DataFrame()
+        try:
+            # 使用可转债专用接口
+            df = ak.bond_cb_issue()
+            if not df.empty:
+                # 动态匹配列名
+                date_col = next((col for col in df.columns if '申购日' in col), None)
+                
+                if date_col and date_col in df.columns:
+                    # 筛选目标日期数据
+                    df = df[df[date_col] == date_str]
+                    if not df.empty:
+                        # 提取必要列
+                        code_col = next((col for col in df.columns if '代码' in col), None)
+                        name_col = next((col for col in df.columns if '名称' in col or '简称' in col), None)
+                        price_col = next((col for col in df.columns if '价格' in col), None)
+                        limit_col = next((col for col in df.columns if '上限' in col), None)
+                        
+                        if all(col is not None for col in [code_col, name_col]):
+                            valid_df = df[[code_col, name_col]]
+                            if price_col: valid_df['发行价格'] = df[price_col]
+                            if limit_col: valid_df['申购上限'] = df[limit_col]
+                            valid_df['申购日期'] = date_str
+                            valid_df['类型'] = '可转债'
+                            bond_data = valid_df.rename(columns={
+                                code_col: '代码',
+                                name_col: '简称'
+                            })
+        except Exception as e:
+            logger.error(f"AkShare获取{date_str}可转债申购信息失败: {str(e)}")
+        
+        # 合并股票和可转债数据
+        if not stock_data.empty or not bond_data.empty:
+            combined_data = pd.concat([stock_data, bond_data], ignore_index=True)
+            logger.info(f"成功获取{date_str}的{len(combined_data)}条申购数据")
+            return combined_data
+    
+    logger.warning(f"{'测试模式' if test else '正常模式'}: 未找到申购数据")
+    return pd.DataFrame()        
         # 尝试新浪财经（备用数据源2）
         try:
             sina_url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=1&num=100&sort=symbol&asc=1&node=iponew&symbol=&_s_r_a=page"
