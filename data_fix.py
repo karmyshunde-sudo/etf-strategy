@@ -818,49 +818,33 @@ def get_new_stock_subscriptions():
     return pd.DataFrame()
 def get_new_stock_listings():
     """获取当天新上市交易的新股数据"""
+    today = get_beijing_time().strftime('%Y-%m-%d')
     try:
-        # 尝试AkShare（主数据源）
-        today = get_beijing_time().strftime('%Y-%m-%d')
-        df = ak.stock_zh_a_new()
-        if not df.empty and 'listing_date' in df.columns:
-            df = df[df['listing_date'] == today]
-            if not df.empty:
-                return df[['code', 'name', 'issue_price', 'max_purchase', 'listing_date']]
-    except Exception as e:
-        logger.error(f"AkShare获取新上市交易股票信息失败: {str(e)}")
-    
-    # 尝试Baostock（备用数据源1）
-    try:
-        # 登录Baostock
-        login_result = bs.login()
-        if login_result.error_code != '0':
-            logger.error(f"Baostock登录失败: {login_result.error_msg}")
-            raise Exception("Baostock登录失败")
+        df = ak.stock_xgsglb_em(symbol="全部股票")
         
-        # 获取新股列表
-        rs = bs.query_stock_new()
-        if rs.error_code != '0':
-            logger.error(f"Baostock查询失败: {rs.error_msg}")
+        # 动态匹配列名
+        code_col = next((col for col in df.columns if '代码' in col), None)
+        name_col = next((col for col in df.columns if '名称' in col or '简称' in col), None)
+        price_col = next((col for col in df.columns if '价格' in col), None)
+        date_col = next((col for col in df.columns if '上市日期' in col), None)
+        
+        if any(col is None for col in [code_col, name_col, date_col]):
+            logger.error("AkShare返回数据缺少必要列")
             return pd.DataFrame()
         
-        # 转换为DataFrame
-        data_list = []
-        while (rs.error_code == '0') & rs.next():
-            data_list.append(rs.get_row_data())
+        # 筛选当天数据
+        df = df[df[date_col] == today]
+        if df.empty:
+            return pd.DataFrame()
         
-        if data_list:
-            df = pd.DataFrame(data_list, columns=rs.fields)
-            return df[['code', 'code_name', 'price', 'max_purchase', 'ipoDate']].rename(columns={
-                'code': 'code',
-                'code_name': 'name',
-                'price': 'issue_price',
-                'max_purchase': 'max_purchase',
-                'ipoDate': 'listing_date'
-            })
-        else:
-            logger.warning("Baostock返回空数据，尝试下一个数据源...")
+        # 标准化列名并过滤有效数据
+        valid_df = df[[code_col, name_col, price_col, date_col]].copy()
+        valid_df.columns = ['股票代码', '股票简称', '发行价格', '上市日期']
+        valid_df = valid_df.dropna(subset=['股票代码', '股票简称', '上市日期'])
+        
+        return valid_df
     except Exception as e:
-        logger.error(f"Baostock获取新上市交易股票信息失败: {str(e)}")
+        logger.error(f"AkShare获取新上市股票信息失败: {str(e)}")
     
     # 尝试新浪财经（备用数据源2）
     try:
