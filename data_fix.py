@@ -839,8 +839,8 @@ def get_new_stock_subscriptions(test=False):
             logger.info(f"成功获取{date_str}的{len(combined_data)}条申购数据")
             return combined_data
     
-    logger.warning(f"{'测试模式' if test else '正常模式'}: 未找到申购数据")
-    return pd.DataFrame()        
+        logger.warning(f"{'测试模式' if test else '正常模式'}: 未找到申购数据")
+        return pd.DataFrame()        
         # 尝试新浪财经（备用数据源2）
         try:
             sina_url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=1&num=100&sort=symbol&asc=1&node=iponew&symbol=&_s_r_a=page"
