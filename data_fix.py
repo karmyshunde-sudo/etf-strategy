@@ -759,45 +759,64 @@ def get_new_stock_subscriptions():
         # 尝试AkShare（主数据源）
         today = get_beijing_time().strftime('%Y-%m-%d')
         df = ak.stock_xgsglb_em()
-        if not df.empty and '申购日期' in df.columns:
-            df = df[df['申购日期'] == today]
-            if not df.empty:
-                return df[['股票代码', '股票简称', '发行价格', '申购上限', '申购日期']]
+        
+        # 动态检查可用列名
+        date_cols = [col for col in df.columns if '日期' in col or 'date' in col.lower()]
+        code_cols = [col for col in df.columns if '代码' in col or 'code' in col.lower()]
+        name_cols = [col for col in df.columns if '名称' in col or 'name' in col.lower()]
+        
+        if not date_cols or not code_cols or not name_cols:
+            logger.warning("AkShare返回数据缺少必要列")
+            return pd.DataFrame()
+        
+        # 标准化日期格式
+        df[date_cols[0]] = pd.to_datetime(df[date_cols[0]]).dt.strftime('%Y-%m-%d')
+        
+        # 筛选当天数据
+        df = df[df[date_cols[0]] == today]
+        if df.empty:
+            return pd.DataFrame()
+        
+        # 返回标准化数据
+        return pd.DataFrame({
+            '股票代码': df[code_cols[0]],
+            '股票简称': df[name_cols[0]],
+            '发行价格': df.get('发行价格', df.get('price', '')),
+            '申购上限': df.get('申购上限', df.get('max_purchase', '')),
+            '申购日期': df[date_cols[0]]
+        })
     except Exception as e:
         logger.error(f"AkShare获取新股信息失败: {str(e)}")
-    
-    # 尝试Tushare（备用数据源1）
-    try:
-        ts_token = os.getenv('TUSHARE_TOKEN')
-        if ts_token:
-            import tushare as ts
-            ts.set_token(ts_token)
-            pro = ts.pro_api()
-            
-            # 获取当日新股申购信息
-            df = pro.new_share(start_date=today, end_date=today)
-            if not df.empty:
-                return df[['ts_code', 'name', 'price', 'max_supply', 'ipo_date']]
-    except Exception as e:
-        logger.error(f"Tushare获取新股信息失败: {str(e)}")
+    return pd.DataFrame()    
     
     # 尝试新浪财经（备用数据源2）
     try:
         sina_url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=1&num=100&sort=symbol&asc=1&node=iponew&symbol=&_s_r_a=page"
-        response = requests.get(sina_url, timeout=15)
+        response = requests.get(sina_url, timeout=15, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        })
         response.raise_for_status()
         data = response.json()
         
+        today = get_beijing_time().strftime('%Y-%m-%d')
         new_stocks = []
-        for item in data['data']:
-            if item.get('ipo_date') == today:
-                new_stocks.append({
-                    '股票代码': item.get('symbol'),
-                    '股票简称': item.get('name'),
-                    '发行价格': item.get('price'),
-                    '申购上限': item.get('max_purchase'),
-                    '申购日期': item.get('ipo_date')
-                })
+        
+        # 确保 data 是字典且包含 'data' 键
+        if isinstance(data, dict) and 'data' in data:
+            for item in data['data']:
+                ipo_date = item.get('ipo_date', '')
+                # 标准化日期格式
+                if len(ipo_date) == 8:  # YYYYMMDD
+                    ipo_date = f"{ipo_date[:4]}-{ipo_date[4:6]}-{ipo_date[6:]}"
+                
+                if ipo_date == today:
+                    new_stocks.append({
+                        '股票代码': item.get('symbol', ''),
+                        '股票简称': item.get('name', ''),
+                        '发行价格': item.get('price', ''),
+                        '申购上限': item.get('max_purchase', ''),
+                        '申购日期': today
+                    })
         
         if new_stocks:
             return pd.DataFrame(new_stocks)
