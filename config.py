@@ -40,20 +40,18 @@ class Config:
     # 数据保留天数
     OTHER_DATA_RETENTION_DAYS = 365
     
-    # 确保所有目录存在
-    for directory in [RAW_DATA_DIR, STOCK_POOL_DIR, TRADE_LOG_DIR, 
-                     ERROR_LOG_DIR, NEW_STOCK_DIR, ARBITRAGE_DIR, STATUS_DIR]:
-        os.makedirs(directory, exist_ok=True)
-    
     # 企业微信webhook地址（从环境变量获取）
     WECOM_WEBHOOK = os.getenv('WECOM_WEBHOOK', '')
     
     # 消息底部附加信息
-    MESSAGE_FOOTER = "【etf-strategy】250822Ver3.0"
+    MESSAGE_FOOTER = "【鱼盆ETF投资量化系统】全自动决策| 无需人工干预| 版本号250820.10.02"
     
     # 数据完整性检查配置
     MIN_DATA_DAYS = 30  # 最小数据天数
     MAX_DATA_AGE = 1    # 最大数据年龄（天）
+    
+    # 日志级别 - 关键修复：必须定义此项
+    LOG_LEVEL = 'INFO'
     
     @classmethod
     def init_directories(cls):
@@ -61,4 +59,3 @@ class Config:
         for directory in [cls.RAW_DATA_DIR, cls.STOCK_POOL_DIR, cls.TRADE_LOG_DIR, 
                          cls.ERROR_LOG_DIR, cls.NEW_STOCK_DIR, cls.ARBITRAGE_DIR, cls.STATUS_DIR]:
             os.makedirs(directory, exist_ok=True)
-    LOG_LEVEL = 'INFO'
