@@ -2,19 +2,24 @@ name: ETF Strategy Scheduler
 
 on:
   schedule:
-    # 每个交易日 9:35 推送新股信息 (北京时间 UTC+8)
-    - cron: '35 1 * * 1-5' # UTC 1:35 = 北京时间 9:35
-    # 每个交易日 13:40 推送策略信号
-    - cron: '40 5 * * 1-5' # UTC 5:40 = 北京时间 13:40
-    # 每周五 16:00 更新股票池
-    - cron: '0 8 * * 5' # UTC 8:00 = 北京时间 16:00
-    # 每个交易日 15:30 爬取日线数据
-    - cron: '30 7 * * 1-5' # UTC 7:30 = 北京时间 15:30
-    # 盘中数据爬取 (每30分钟)
-    - cron: '35 1-6/1 * * 1-5' # UTC 时间 = 北京时间 - 8
-    # 每天 00:00 清理旧数据
+    # 每个交易日 9:31 爬取当天新股申购、新上市股票信息 (北京时间 UTC+8)
+    - cron: '31 1 * * 1-5' # UTC 1:31 = 北京时间 9:31
+    
+    # 每个交易日 9:45 推送新股申购和新上市股票信息 (北京时间 UTC+8)
+    - cron: '45 1 * * 1-5' # UTC 1:45 = 北京时间 9:45
+    
+    # 每个交易日 9:55 爬取当天ETF交易数据 (北京时间 UTC+8)
+    - cron: '55 1 * * 1-5' # UTC 1:55 = 北京时间 9:55
+    
+    # 每个交易日 13:00 套利扫描、股票池策略计算与推送 (北京时间 UTC+8)
+    - cron: '0 5 * * 1-5' # UTC 5:00 = 北京时间 13:00
+    
+    # 每个交易日 16:00 爬取日线数据 (北京时间 UTC+8)
+    - cron: '0 8 * * 1-5' # UTC 8:00 = 北京时间 16:00
+    
+    # 每天 00:00 清理旧数据 (北京时间 UTC+8)
     - cron: '0 16 * * *' # UTC 16:00 = 北京时间 00:00
-  
+
   # 允许手动触发
   workflow_dispatch:
     inputs:
@@ -25,33 +30,28 @@ on:
         options:
           - 'test_message' 				#【T01】手动推送微信消息
           - 'test_new_stock' 			#【T07】手动推送新股信息
-          - 'test_new_stock_listings'		#新增【T08】手动套利扫描
+          - 'test_new_stock_listings'	#【T08】手动推送新上市交易股票信息
           - 'test_stock_pool' 			#【T04】手动推送当前股票池
           - 'test_execute'				#【T05】手动执行策略并推送结果
           - 'test_reset'					#【T06】手动重置所有仓位（测试用）
           - 'test_arbitrage'				#【T09】手动套利扫描
-          - 'run_new_stock_info'			#每日 9:35 新股信息推送
-          - 'push_strategy'				#计算策略信号并推送到企业微信
-          - 'update_stock_pool'			#每周五16:00北京时间更新ETF股票池（5只稳健仓 + 5只激进仓）
-          - 'crawl_daily'					#日线数据爬取任务
-          - 'crawl_intraday'				#盘中数据爬取任务
-          - 'cleanup'					#数据清理任务
-          - 'arbitrage-scan' # 新增定时套利扫描
+          - 'crawl_new_stock'			#【T10】手动爬取新股申购和新上市股票信息
+          - 'crawl_intraday'				#【T11】手动爬取当天ETF交易数据
+          - 'push_new_stock'				#【T12】手动推送新股申购和新上市股票信息
+          - 'arbitrage-scan'				#【T13】手动套利扫描
+          - 'push_strategy'				#【T14】手动推送策略信号
+          - 'crawl_daily'				#【T15】手动爬取日线数据
+          - 'cleanup'					#【T16】手动清理旧数据
 
 jobs:
-  run-new-stock-info:
-    # 修复1：简化条件判断
-    if: ${{ contains('35 1 * * 1-5', github.event.schedule) || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'run_new_stock_info') }}
+  # 9:31 AM：爬取当天新股申购、新上市股票信息
+  run-crawl-new-stock:
+    if: github.event.inputs.task == 'crawl_new_stock' || github.schedule == '31 1 * * 1-5'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
-      pull-requests: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v3
         with:
-          ref: main
           fetch-depth: 0
       
       - name: Set up Python
@@ -63,51 +63,27 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install akshare baostock jqdatasdk
       
-      - name: Debug info
-        run: |
-          echo "Event schedule: ${{ github.event.schedule }}"
-          echo "Event name: ${{ github.event_name }}"
-          echo "Input task: ${{ github.event.inputs.task }}"
-          echo "Is trading day: $(date '+%u')"
-      
-      - name: Run strategy
+      - name: Run new stock and listing crawl
         env:
-          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'run_new_stock_info' }}
+          TASK: crawl_new_stock
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}
-          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
-          MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
         run: |
-          # 执行主程序
           python main.py
-          
-          # 提交数据变更到仓库
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          # 递归添加所有数据目录
-          git add data/**
-          git commit -m "自动更新新股信息数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
-          git push origin main || echo "Failed to push changes"
-      
-      - name: Verify execution
-        run: |
-          echo "New stock info execution completed successfully!"
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add data/
+          git commit -m "自动保存新股数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
+          git push origin main || git pull origin main --rebase && git push origin main
 
-  push-strategy:
-    # 修复3：使用更灵活的条件判断
-    if: ${{ (contains(github.event.schedule, '40 5') && github.event.schedule != '') || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'push_strategy') }}
+  # 9:45 AM：推送新股申购和新上市股票信息
+  run-push-new-stock:
+    if: github.event.inputs.task == 'push_new_stock' || github.schedule == '45 1 * * 1-5'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
-      pull-requests: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
+      - name: Checkout
+        uses: actions/checkout@v3
       
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -118,49 +94,22 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install akshare baostock jqdatasdk
       
-      - name: Debug info
-        run: |
-          echo "Event schedule: ${{ github.event.schedule }}"
-          echo "Event name: ${{ github.event_name }}"
-          echo "Input task: ${{ github.event.inputs.task }}"
-      
-      - name: Run strategy
+      - name: Run new stock info push
         env:
-          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'push_strategy' }}
+          TASK: push_new_stock
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}
-          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
-          MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
-        run: |
-          # 执行主程序
-          python main.py
-          
-          # 提交数据变更到仓库
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          # 递归添加所有数据目录
-          git add data/**
-          git commit -m "自动更新策略数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
-          git push origin main || echo "Failed to push changes"
-      
-      - name: Verify execution
-        run: |
-          echo "Strategy push execution completed successfully!"
+        run: python main.py
 
-  update-stock-pool:
-    # 修复4：简化周五更新条件
-    if: ${{ (github.event.schedule == '0 8 * * 5' && github.run_attempt == 1) || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'update_stock_pool') }}
+  # 9:55 AM：爬取当天ETF交易数据
+  run-crawl-intraday:
+    if: github.event.inputs.task == 'crawl_intraday' || github.schedule == '55 1 * * 1-5'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
-      pull-requests: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v3
         with:
-          ref: main
           fetch-depth: 0
       
       - name: Set up Python
@@ -172,48 +121,27 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install akshare baostock jqdatasdk
       
-      - name: Debug info
-        run: |
-          echo "Is it Friday? $(date -u '+%u' | grep -q 5 && echo 'Yes' || echo 'No')"
-      
-      - name: Run strategy
+      - name: Run intraday data crawl
         env:
-          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'update_stock_pool' }}
+          TASK: crawl_intraday
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}
-          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
-          MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
         run: |
-          # 执行主程序
           python main.py
-          
-          # 提交数据变更到仓库
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          # 递归添加所有数据目录
-          git add data/**
-          git commit -m "自动更新股票池数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
-          git push origin main || echo "Failed to push changes"
-      
-      - name: Verify execution
-        run: |
-          echo "Stock pool update execution completed successfully!"
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add data/
+          git commit -m "自动保存ETF交易数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
+          git push origin main || git pull origin main --rebase && git push origin main
 
-  crawl-daily:
-    # 修复5：简化日线爬取条件
-    if: ${{ contains(github.event.schedule, '30 7') || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'crawl_daily') }}
+  # 13:00 PM：套利扫描、股票池策略计算与推送
+  run-arbitrage-and-strategy:
+    if: github.event.inputs.task == 'arbitrage-scan' || github.event.inputs.task == 'push_strategy' || github.schedule == '0 5 * * 1-5'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
-      pull-requests: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
+      - name: Checkout
+        uses: actions/checkout@v3
       
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -224,48 +152,28 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install akshare baostock jqdatasdk
       
-      - name: Debug info
-        run: |
-          echo "Event schedule: ${{ github.event.schedule }}"
-          echo "Is weekday? $([ $(date -u '+%u') -le 5 ] && echo 'Yes' || echo 'No')"
-      
-      - name: Run strategy
+      - name: Run arbitrage scan
         env:
-          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'crawl_daily' }}
+          TASK: arbitrage-scan
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}
-          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
-          MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
-        run: |
-          # 执行主程序
-          python main.py
-          
-          # 提交数据变更到仓库
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          # 递归添加所有数据目录
-          git add data/**
-          git commit -m "自动爬取日线数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
-          git push origin main || echo "Failed to push changes"
+        run: python main.py
       
-      - name: Verify execution
-        run: |
-          echo "Daily crawl execution completed successfully!"
+      - name: Run strategy push
+        env:
+          TASK: push_strategy
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+        run: python main.py
 
-  crawl-intraday:
-    # 修复6：优化盘中爬取条件
-    if: ${{ contains(github.event.schedule, '35') || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'crawl_intraday') }}
+  # 16:00 PM：爬取日线数据
+  run-crawl-daily:
+    if: github.event.inputs.task == 'crawl_daily' || github.schedule == '0 8 * * 1-5'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
-      pull-requests: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v3
         with:
-          ref: main
           fetch-depth: 0
       
       - name: Set up Python
@@ -277,49 +185,27 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install akshare baostock jqdatasdk
       
-      - name: Debug info
-        run: |
-          echo "Current UTC hour: $(date -u '+%H')"
-          echo "Event schedule: ${{ github.event.schedule }}"
-      
-      - name: Run strategy
+      - name: Run daily data crawl
         env:
-          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'crawl_intraday' }}
+          TASK: crawl_daily
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}
-          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
-          MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
         run: |
-          # 执行主程序
           python main.py
-          
-          # 提交数据变更到仓库
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          # 递归添加所有数据目录
-          git add data/**
-          git commit -m "自动爬取盘中数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
-          git push origin main || echo "Failed to push changes"
-      
-      - name: Verify execution
-        run: |
-          echo "Intraday crawl execution completed successfully!"
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add data/
+          git commit -m "自动保存ETF日线数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
+          git push origin main || git pull origin main --rebase && git push origin main
 
-  arbitrage-scan:
-    # 修复7：确保套利扫描任务可手动触发
-    if: ${{ contains(github.event.schedule, '35') || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'arbitrage-scan') }}
+  # 00:00 AM：清理旧数据
+  run-cleanup:
+    if: github.event.inputs.task == 'cleanup' || github.schedule == '0 16 * * *'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
-      pull-requests: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
+      - name: Checkout
+        uses: actions/checkout@v3
       
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -330,48 +216,20 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install akshare baostock jqdatasdk
       
-      - name: Debug info
-        run: |
-          echo "Manual trigger for arbitrage scan"
-      
-      - name: Run strategy
+      - name: Run data cleanup
         env:
-          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'arbitrage-scan' }}
-          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}
-          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
-          MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
-        run: |
-          # 执行主程序
-          python main.py
-          
-          # 提交数据变更到仓库
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          # 递归添加所有数据目录
-          git add data/**
-          git commit -m "自动更新套利数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
-          git push origin main || echo "Failed to push changes"
-      
-      - name: Verify execution
-        run: |
-          echo "Arbitrage scan execution completed successfully!"
+          TASK: cleanup
+        run: python main.py
 
-  cleanup:
-    # 修复8：优化清理任务条件
-    if: ${{ github.event.schedule == '0 16 * * *' || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'cleanup') }}
+  # 测试任务
+  run-test-message:
+    if: github.event.inputs.task == 'test_message'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
-      pull-requests: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
+      - name: Checkout
+        uses: actions/checkout@v3
       
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -382,30 +240,153 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install akshare baostock jqdatasdk
       
-      - name: Debug info
-        run: |
-          echo "Cleanup task triggered at $(date -u)"
-      
-      - name: Run strategy
+      - name: Run test message
         env:
-          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'cleanup' }}
+          TASK: test_message
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}
-          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
-          MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
-        run: |
-          # 执行主程序
-          python main.py
-          
-          # 提交数据变更到仓库
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          # 递归添加所有数据目录
-          git add data/**
-          git commit -m "自动清理旧数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
-          git push origin main || echo "Failed to push changes"
+        run: python main.py
+
+  run-test-new-stock:
+    if: github.event.inputs.task == 'test_new_stock'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
       
-      - name: Verify execution
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
         run: |
-          echo "Cleanup execution completed successfully!"
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install akshare baostock jqdatasdk
+      
+      - name: Run test new stock
+        env:
+          TASK: test_new_stock
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+        run: python main.py
+
+  run-test-new-stock-listings:
+    if: github.event.inputs.task == 'test_new_stock_listings'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install akshare baostock jqdatasdk
+      
+      - name: Run test new stock listings
+        env:
+          TASK: test_new_stock_listings
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+        run: python main.py
+
+  run-test-stock-pool:
+    if: github.event.inputs.task == 'test_stock_pool'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install akshare baostock jqdatasdk
+      
+      - name: Run test stock pool
+        env:
+          TASK: test_stock_pool
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+        run: python main.py
+
+  run-test-execute:
+    if: github.event.inputs.task == 'test_execute'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install akshare baostock jqdatasdk
+      
+      - name: Run test execute
+        env:
+          TASK: test_execute
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+        run: python main.py
+
+  run-test-reset:
+    if: github.event.inputs.task == 'test_reset'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install akshare baostock jqdatasdk
+      
+      - name: Run test reset
+        env:
+          TASK: test_reset
+        run: python main.py
+
+  run-test-arbitrage:
+    if: github.event.inputs.task == 'test_arbitrage'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install akshare baostock jqdatasdk
+      
+      - name: Run test arbitrage
+        env:
+          TASK: test_arbitrage
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+        run: python main.py
