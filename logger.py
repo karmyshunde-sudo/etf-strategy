@@ -14,7 +14,7 @@ def get_logger(name):
     返回:
         logger: 配置好的日志记录器
     """
-    # 延迟导入Config，解决循环导入问题
+    # 延迟导入Config，解决循环导入问题 - 必须放在使用Config之前
     from config import Config
     
     # 确保错误日志目录存在
