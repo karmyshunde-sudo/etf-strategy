@@ -49,7 +49,7 @@ class Config:
     WECOM_WEBHOOK = os.getenv('WECOM_WEBHOOK', '')
     
     # 消息底部附加信息
-    MESSAGE_FOOTER = "【鱼盆ETF投资量化系统】全自动决策| 无需人工干预| 版本号250820.10.02"
+    MESSAGE_FOOTER = "【etf-strategy】250822Ver3.0"
     
     # 数据完整性检查配置
     MIN_DATA_DAYS = 30  # 最小数据天数
