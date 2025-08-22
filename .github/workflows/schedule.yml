@@ -336,7 +336,8 @@ jobs:
           echo "Arbitrage scan execution completed successfully!"
 
   resume-crawl:
-    if: ${{ github.event.inputs.task == 'resume_crawl' || (github.event.schedule == '0 */2 * * *' && (utc_hour >= 10 && utc_hour <= 15 || utc_hour >= 16 || utc_hour <= 1)) }}
+    # 简化条件：只要任务是 resume_crawl 或定时器触发就运行
+    if: ${{ github.event.inputs.task == 'resume_crawl' || github.event.schedule == '0 */2 * * *' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -359,7 +360,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       
-      - name: Debug info
+      - name: Check if non-trading hours
+        id: check_hours
         run: |
           echo "Current UTC time: $(date -u '+%Y-%m-%d %H:%M:%S')"
           echo "Current UTC hour: $(date -u '+%H')"
@@ -372,13 +374,15 @@ jobs:
           if (( beijing_hour >= 18 || beijing_hour < 9 )); then
             echo "IN_NON_TRADING_HOURS=true"
             echo "IN_NON_TRADING_HOURS=true" >> $GITHUB_ENV
+            echo "non_trading_hours=true" >> $GITHUB_OUTPUT
           else
             echo "IN_NON_TRADING_HOURS=false"
             echo "IN_NON_TRADING_HOURS=false" >> $GITHUB_ENV
+            echo "non_trading_hours=false" >> $GITHUB_OUTPUT
           fi
       
       - name: Run resume crawl (only in non-trading hours)
-        if: env.IN_NON_TRADING_HOURS == 'true'
+        if: steps.check_hours.outputs.non_trading_hours == 'true'
         env:
           TASK: resume_crawl
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
@@ -394,7 +398,7 @@ jobs:
           git push origin main || echo "Failed to push changes"
       
       - name: Skip resume crawl (during trading hours)
-        if: env.IN_NON_TRADING_HOURS != 'true'
+        if: steps.check_hours.outputs.non_trading_hours != 'true'
         run: |
           echo "当前为交易时间 (北京时间 09:00-18:00)，跳过断点续爬任务"
 
