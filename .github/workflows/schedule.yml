@@ -228,15 +228,17 @@ jobs:
         run: python main.py
 
   # 断点续爬任务（每2小时执行一次，仅在非交易时间）
+  # 检查是否在18:00-23:59 (UTC 10:00-15:59)
+  # 检查是否在00:00-09:00 (UTC 16:00-01:00)
+  # 判断是否在非交易时间 (18:00-09:00)
+  # 提交数据变更到仓库
   resume-crawl:
     if: >-
       github.event.inputs.task == 'resume_crawl' || 
       (
         github.schedule == '0 */2 * * *' && 
         (
-          # 检查是否在18:00-23:59 (UTC 10:00-15:59)
           (utc_hour >= 10 && utc_hour <= 15) ||
-          # 检查是否在00:00-09:00 (UTC 16:00-01:00)
           (utc_hour >= 16 || utc_hour <= 1)
         )
       )
@@ -267,7 +269,6 @@ jobs:
           echo "Current Beijing time: $(date '+%Y-%m-%d %H:%M:%S')"
           echo "Beijing hour: $beijing_hour"
           
-          # 判断是否在非交易时间 (18:00-09:00)
           if (( beijing_hour >= 18 || beijing_hour < 9 )); then
             echo "IN_NON_TRADING_HOURS=true"
             echo "IN_NON_TRADING_HOURS=true" >> $GITHUB_ENV
@@ -284,7 +285,6 @@ jobs:
         run: |
           python main.py
           
-          # 提交数据变更到仓库
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add data/
