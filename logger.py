@@ -7,12 +7,6 @@ import os
 from datetime import datetime
 
 def get_logger(name):
-    # 使用环境变量优先，否则使用配置文件，最后使用默认值
-    log_level = getattr(
-        logging, 
-        os.getenv('LOG_LEVEL', Config.LOG_LEVEL).upper(), 
-        logging.INFO
-    )
     """
     获取配置好的日志记录器
     参数:
@@ -31,7 +25,10 @@ def get_logger(name):
     
     # 创建日志记录器
     logger = logging.getLogger(name)
-    log_level = getattr(logging, Config.LOG_LEVEL.upper(), logging.INFO)
+    
+    # 使用环境变量优先，否则使用配置文件，最后使用默认值
+    log_level_str = os.getenv('LOG_LEVEL', Config.LOG_LEVEL).upper()
+    log_level = getattr(logging, log_level_str, logging.INFO)
     logger.setLevel(log_level)
     
     # 创建文件处理器（仅记录错误）
