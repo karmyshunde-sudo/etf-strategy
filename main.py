@@ -1,7 +1,6 @@
 """2025-08-20 Ver1.0 主入口文件
 所有说明查看【notes.md】"""
 
-import json
 import os
 import sys
 import time
@@ -11,21 +10,18 @@ import datetime
 import pytz
 import shutil
 import requests
+import subprocess
+import json
 from flask import Flask, request, jsonify, has_app_context
 from config import Config
 from logger import get_logger
 from bs4 import BeautifulSoup
-from data_fix import (
-    get_beijing_time,
-    is_trading_day,
-    get_all_etf_list,
-    get_new_stock_subscriptions,
-    get_new_stock_listings,
-    cron_crawl_daily,
-    cron_crawl_intraday,
-    cron_cleanup,
-    resume_crawl
-)
+from data_fix import (get_beijing_time, is_trading_day, get_all_etf_list, 
+                     get_new_stock_subscriptions, get_new_stock_listings,
+                     cron_crawl_daily, cron_crawl_intraday, cron_cleanup, resume_crawl,
+                     check_data_integrity, crawl_new_stock_info, crawl_new_listing_info,
+                     mark_new_stock_info_pushed, mark_listing_info_pushed, get_etf_data,
+                     read_new_stock_pushed_flag, read_listing_pushed_flag, send_wecom_message)
 
 # 确保所有数据目录存在
 Config.init_directories()
@@ -50,10 +46,11 @@ def calculate_ETF_score(etf_code):
         dict: 评分结果或None（如果失败）"""
     try:
         # 获取ETF数据
-        from data_fix import get_etf_data
         data = get_etf_data(etf_code, 'daily')
         if data is None or data.empty:
-            logger.error(f"获取{etf_code}数据失败，无法计算评分")
+            error_msg = f"【数据错误】获取{etf_code}数据失败，无法计算评分"
+            logger.error(error_msg)
+            send_wecom_message(error_msg)
             return None
         
         # 确保数据按日期排序
@@ -74,11 +71,45 @@ def calculate_ETF_score(etf_code):
         return_pct = (current_price - past_price) / past_price
         return_score = min(100, max(0, return_pct * 1000))  # 假设10%收益率为满分
         
-        # 4. 溢价率评分 (需要IOPV数据，这里简化处理)
-        premium_score = 50  # 默认中等评分
+        # 4. 溢价率评分 (需要IOPV数据)
+        try:
+            # 尝试获取IOPV数据
+            from data_fix import get_etf_iopv_data
+            iopv_data = get_etf_iopv_data(etf_code)
+            if iopv_data is not None and not iopv_data.empty:
+                latest_iopv = iopv_data['iopv'].iloc[-1]
+                premium_rate = (current_price - latest_iopv) / latest_iopv * 100
+                premium_score = 100 - min(100, abs(premium_rate) * 5)  # 溢价率越小分越高
+            else:
+                error_msg = f"【数据错误】获取{etf_code} IOPV数据失败，溢价率评分使用默认值"
+                logger.warning(error_msg)
+                send_wecom_message(error_msg)
+                premium_score = 50
+        except Exception as e:
+            error_msg = f"【数据错误】获取{etf_code} IOPV数据失败: {str(e)}，溢价率评分使用默认值"
+            logger.warning(error_msg)
+            send_wecom_message(error_msg)
+            premium_score = 50
         
-        # 5. 情绪指标评分 (需要额外数据源，这里简化处理)
-        sentiment_score = 50  # 默认中等评分
+        # 5. 情绪指标评分 (基于市场情绪)
+        try:
+            # 获取市场情绪数据
+            from data_fix import get_market_sentiment
+            sentiment = get_market_sentiment()
+            if sentiment is not None:
+                # 根据市场情绪调整评分
+                sentiment_score = 50 + sentiment * 50  # 情绪值范围[-1, 1]
+                sentiment_score = max(0, min(100, sentiment_score))  # 限制在0-100范围内
+            else:
+                error_msg = "【数据错误】获取市场情绪数据失败，情绪评分使用默认值"
+                logger.warning(error_msg)
+                send_wecom_message(error_msg)
+                sentiment_score = 50
+        except Exception as e:
+            error_msg = f"【数据错误】获取市场情绪数据失败: {str(e)}，情绪评分使用默认值"
+            logger.warning(error_msg)
+            send_wecom_message(error_msg)
+            sentiment_score = 50
         
         # 综合评分 (加权平均)
         total_score = (
@@ -104,16 +135,28 @@ def calculate_ETF_score(etf_code):
         logger.debug(f"{etf_code}评分结果: {result}")
         return result
     except Exception as e:
-        logger.error(f"计算{etf_code}评分失败: {str(e)}")
+        error_msg = f"【系统错误】计算{etf_code}评分失败: {str(e)}"
+        logger.error(error_msg)
+        send_wecom_message(error_msg)
         return None
 
 def generate_stock_pool():
     """生成股票池（5只稳健仓 + 5只激进仓）"""
+    # 检查数据完整性
+    integrity_check = check_data_integrity()
+    if integrity_check:
+        error_msg = f"【数据错误】{integrity_check}"
+        logger.error(error_msg)
+        send_wecom_message(error_msg)
+        return None
+    
     try:
         # 获取ETF列表
         etf_list = get_all_etf_list()
         if etf_list is None or etf_list.empty:
-            logger.error("股票池生成失败：ETF列表为空")
+            error_msg = "【数据错误】股票池生成失败：ETF列表为空"
+            logger.error(error_msg)
+            send_wecom_message(error_msg)
             return None
         
         # 评分所有ETF
@@ -124,11 +167,15 @@ def generate_stock_pool():
                 if score:
                     scored_etfs.append(score)
             except Exception as e:
-                logger.error(f"计算{etf['code']}评分失败: {str(e)}")
+                error_msg = f"【系统错误】计算{etf['code']}评分失败: {str(e)}"
+                logger.error(error_msg)
+                send_wecom_message(error_msg)
                 continue
         
         if not scored_etfs:
-            logger.error("股票池生成失败：无有效评分数据")
+            error_msg = "【数据错误】股票池生成失败：无有效评分数据"
+            logger.error(error_msg)
+            send_wecom_message(error_msg)
             return None
         
         # 转换为DataFrame
@@ -138,13 +185,36 @@ def generate_stock_pool():
         scores_df = scores_df.sort_values('total_score', ascending=False)
         
         # 选择稳健仓（高评分、低波动）
-        selected_stable = scores_df.nlargest(5, 'total_score')
+        # 稳健仓选择标准：综合评分高，风险评分高
+        # 先按总评分排序，再按风险评分排序
+        selected_stable = scores_df.nlargest(10, 'total_score')
+        selected_stable = selected_stable.nlargest(5, 'risk_score')
         
         # 选择激进仓（高收益潜力）
-        selected_aggressive = scores_df.nlargest(10, 'return_score').iloc[5:]
+        # 激进仓选择标准：收益评分高，溢价率低
+        selected_aggressive = scores_df.nlargest(10, 'return_score')
+        selected_aggressive = selected_aggressive.nlargest(5, 'premium_score')
+        
+        # 检查是否选择到足够的ETF
+        if len(selected_stable) < 5:
+            error_msg = f"【数据错误】稳健仓ETF数量不足（仅{len(selected_stable)}只），无法生成完整股票池"
+            logger.error(error_msg)
+            send_wecom_message(error_msg)
+            return None
+            
+        if len(selected_aggressive) < 5:
+            error_msg = f"【数据错误】激进仓ETF数量不足（仅{len(selected_aggressive)}只），无法生成完整股票池"
+            logger.error(error_msg)
+            send_wecom_message(error_msg)
+            return None
         
         # 合并股票池
         final_pool = pd.concat([selected_stable, selected_aggressive])
+        
+        # 为每只ETF添加类型标识
+        final_pool['type'] = ''
+        final_pool.loc[final_pool.index.isin(selected_stable.index), 'type'] = '稳健仓'
+        final_pool.loc[final_pool.index.isin(selected_aggressive.index), 'type'] = '激进仓'
         
         # 保存到数据目录
         os.makedirs(Config.STOCK_POOL_DIR, exist_ok=True)
@@ -159,50 +229,24 @@ def generate_stock_pool():
         message += "【稳健仓】\n"
         for _, etf in selected_stable.iterrows():
             message += f"• {etf['etf_code']} - {etf['name']} (评分: {etf['total_score']:.2f})\n"
+            message += f"  流动性: {etf['liquidity_score']:.1f} | 风险: {etf['risk_score']:.1f} | 收益: {etf['return_score']:.1f}\n"
         
         message += "\n【激进仓】\n"
         for _, etf in selected_aggressive.iterrows():
             message += f"• {etf['etf_code']} - {etf['name']} (评分: {etf['total_score']:.2f})\n"
+            message += f"  流动性: {etf['liquidity_score']:.1f} | 风险: {etf['risk_score']:.1f} | 收益: {etf['return_score']:.1f}\n"
         
         return message
     except Exception as e:
-        logger.error(f"股票池生成失败: {str(e)}")
+        error_msg = f"【系统错误】股票池生成失败: {str(e)}"
+        logger.error(error_msg)
+        send_wecom_message(error_msg)
         return None
 
-def send_wecom_message(message):
-    """发送消息到企业微信"""
-    try:
-        wecom_webhook = os.getenv('WECOM_WEBHOOK')
-        if not wecom_webhook:
-            logger.error("企业微信Webhook URL未配置")
-            return False
-        
-        # 添加页脚
-        footer = os.getenv('MESSAGE_FOOTER', '')
-        if footer:
-            message += f"\n\n{footer}"
-        
-        payload = {
-            "msgtype": "text",
-            "text": {
-                "content": message,
-                "mentioned_list": ["@all"]
-            }
-        }
-        
-        response = requests.post(wecom_webhook, json=payload, timeout=10)
-        response.raise_for_status()
-        
-        logger.info("企业微信消息发送成功")
-        return True
-    except Exception as e:
-        logger.error(f"企业微信消息发送失败: {str(e)}")
-        return False
-
-def format_new_stock_message(new_stocks):
-    """格式化新股信息消息"""
+def format_new_stock_subscriptions_message(new_stocks):
+    """格式化新股申购信息消息"""
     if new_stocks is None or new_stocks.empty:
-        return "今天没有新股可供申购"
+        return "今天没有新股、新债、新债券可认购"
     
     message = "【今日新股申购】\n"
     for _, stock in new_stocks.iterrows():
@@ -219,8 +263,8 @@ def format_new_stock_listings_message(new_listings):
     
     message = "【今日新上市交易】\n"
     for _, stock in new_listings.iterrows():
-        message += f"• {stock.get('name', '')} ({stock.get('code', '')})\n"
-        message += f"  发行价: {stock.get('issue_price', '未知')}\n\n"
+        message += f"• {stock.get('股票简称', '')} ({stock.get('股票代码', '')})\n"
+        message += f"  发行价: {stock.get('发行价格', '未知')}\n\n"
     
     return message
 
@@ -229,13 +273,17 @@ def push_new_stock_info(test=False):
     参数:
         test: 是否为测试模式
     返回:
-        bool: 是否成功
-    """
-    new_stocks = get_new_stock_subscriptions(test=test)
+        bool: 是否成功"""
+    # 检查是否已经推送过
+    if not test and read_new_stock_pushed_flag(get_beijing_time().date())[1]:
+        logger.info("今天已经推送过新股信息，跳过")
+        return True
+    
+    new_stocks = get_new_stock_subscriptions()
     if new_stocks is None or new_stocks.empty:
-        message = "今天没有新股可供申购"
+        message = "今天没有新股、新债、新债券可认购"
     else:
-        message = format_new_stock_message(new_stocks)
+        message = format_new_stock_subscriptions_message(new_stocks)
     
     if test:
         message = "【测试消息】" + message
@@ -244,7 +292,6 @@ def push_new_stock_info(test=False):
     
     # 标记已推送
     if success and not test:
-        from data_fix import mark_new_stock_info_pushed
         mark_new_stock_info_pushed()
     
     return success
@@ -254,9 +301,13 @@ def push_listing_info(test=False):
     参数:
         test: 是否为测试模式
     返回:
-        bool: 是否成功
-    """
-    new_listings = get_new_stock_listings(test=test)
+        bool: 是否成功"""
+    # 检查是否已经推送过
+    if not test and read_listing_pushed_flag(get_beijing_time().date())[1]:
+        logger.info("今天已经推送过新上市交易信息，跳过")
+        return True
+    
+    new_listings = get_new_stock_listings()
     if new_listings is None or new_listings.empty:
         message = "今天没有新上市股票、可转债、债券可供交易"
     else:
@@ -269,39 +320,165 @@ def push_listing_info(test=False):
     
     # 标记已推送
     if success and not test:
-        from data_fix import mark_listing_info_pushed
         mark_listing_info_pushed()
     
     return success
 
-def push_strategy():
-    """计算策略信号并推送到企业微信"""
-    try:
-        # 1. 生成股票池
-        stock_pool_message = generate_stock_pool()
-        if not stock_pool_message:
-            logger.error("股票池为空，无法生成策略信号")
-            return False
-        
-        # 2. 生成策略信号（简化示例）
-        # 实际策略会更复杂，这里仅作演示
-        strategy_message = "【ETF策略信号】\n"
-        strategy_message += "当前策略：\n"
-        strategy_message += "1. 稳健仓：5只ETF组合，适合长期持有\n"
-        strategy_message += "2. 激进仓：5只ETF组合，适合短线交易\n"
-        strategy_message += "\n详细股票池见上文"
-        
-        # 3. 合并消息
-        full_message = stock_pool_message + "\n\n" + strategy_message
-        
-        # 4. 推送消息
-        return send_wecom_message(full_message)
-    except Exception as e:
-        logger.error(f"策略推送失败: {str(e)}")
-        return False
+def calculate_strategy(code, name, etf_type):
+    """基于评分系统计算单只ETF的策略信号
+    参数:
+        code: ETF代码
+        name: ETF名称
+        etf_type: ETF类型 ('stable'稳健仓, 'aggressive'激进仓)
+    返回:
+        dict: 策略信号"""
+    
+    # 获取ETF评分
+    etf_score = calculate_ETF_score(code)
+    if etf_score is None:
+        error_msg = f"【数据错误】无法获取{code}的评分，无法生成策略信号"
+        logger.error(error_msg)
+        send_wecom_message(error_msg)
+        return None
+    
+    # 获取ETF数据
+    etf_data = get_etf_data(code, 'daily')
+    if etf_data is None or etf_data.empty:
+        error_msg = f"【数据错误】无法获取{code}的数据，无法生成策略信号"
+        logger.error(error_msg)
+        send_wecom_message(error_msg)
+        return None
+    
+    # 获取最新价格
+    current_price = etf_data['close'].iloc[-1]
+    
+    # 根据ETF类型生成策略信号
+    if etf_type == 'stable':
+        # 稳健仓策略：注重风险控制和稳定性
+        if etf_score['total_score'] >= 80 and etf_score['risk_score'] >= 70:
+            action = 'strong_buy'
+            position = 20  # 仓位比例20%
+            rationale = f"综合评分高({etf_score['total_score']:.1f})，风险控制好({etf_score['risk_score']:.1f})"
+        elif etf_score['total_score'] >= 60 and etf_score['risk_score'] >= 50:
+            action = 'buy'
+            position = 10
+            rationale = f"综合评分良好({etf_score['total_score']:.1f})，风险适中({etf_score['risk_score']:.1f})"
+        elif etf_score['total_score'] <= 30:
+            action = 'strong_sell'
+            position = 0
+            rationale = f"综合评分低({etf_score['total_score']:.1f})，风险较高({etf_score['risk_score']:.1f})"
+        else:
+            action = 'hold'
+            position = 0
+            rationale = f"综合评分中等({etf_score['total_score']:.1f})，等待更明确信号"
+    else:
+        # 激进仓策略：注重收益潜力和交易机会
+        if etf_score['return_score'] >= 80 and etf_score['premium_score'] >= 70:
+            action = 'strong_buy'
+            position = 10  # 仓位比例10%
+            rationale = f"收益潜力大({etf_score['return_score']:.1f})，溢价率低({etf_score['premium_score']:.1f})"
+        elif etf_score['return_score'] >= 60 and etf_score['premium_score'] >= 50:
+            action = 'buy'
+            position = 5
+            rationale = f"收益潜力较好({etf_score['return_score']:.1f})，溢价率适中({etf_score['premium_score']:.1f})"
+        elif etf_score['return_score'] <= 30:
+            action = 'strong_sell'
+            position = 0
+            rationale = f"收益潜力低({etf_score['return_score']:.1f})，无交易机会"
+        else:
+            action = 'hold'
+            position = 0
+            rationale = f"收益潜力中等({etf_score['return_score']:.1f})，等待更明确信号"
+    
+    # 构建策略信号
+    signal = {
+        'etf_code': code,
+        'etf_name': name,
+        'cf_time': get_beijing_time().strftime('%Y-%m-%d %H:%M'),
+        'action': action,
+        'position': position,
+        'rationale': rationale,
+        'total_score': etf_score['total_score'],
+        'risk_score': etf_score['risk_score'],
+        'return_score': etf_score['return_score'],
+        'current_price': current_price
+    }
+    
+    return signal
 
-def record_trade(signal):
-    """记录交易到日志"""
+def push_strategy_results(test=False):
+    """计算策略信号并推送到企业微信
+    参数:
+        test: 是否为测试模式
+    返回:
+        bool: 是否成功"""
+    logger.info(f"{'测试' if test else ''}策略计算与推送开始")
+    
+    # 获取当前股票池
+    stock_pool = get_current_stock_pool()
+    if stock_pool is None or stock_pool.empty:
+        error_msg = "【数据错误】股票池为空，无法计算策略"
+        logger.error(error_msg)
+        send_wecom_message(error_msg)
+        return False
+    
+    # 按ETF类型分组
+    stable_etfs = stock_pool[stock_pool['type'] == '稳健仓']
+    aggressive_etfs = stock_pool[stock_pool['type'] == '激进仓']
+    
+    # 计算并推送稳健仓策略
+    if not stable_etfs.empty:
+        logger.info(f"开始推送稳健仓策略（{len(stable_etfs)}只ETF）")
+        for _, etf in stable_etfs.iterrows():
+            signal = calculate_strategy(etf['code'], etf['name'], 'stable')
+            
+            if signal is None:
+                continue
+                
+            # 格式化消息
+            message = _format_strategy_signal(signal, test=test)
+            
+            # 推送消息
+            if not test:
+                send_wecom_message(message)
+            
+            # 记录交易
+            if not test:
+                log_trade(signal)
+            
+            # 间隔1分钟
+            time.sleep(60)
+    
+    # 计算并推送激进仓策略
+    if not aggressive_etfs.empty:
+        logger.info(f"开始推送激进仓策略（{len(aggressive_etfs)}只ETF）")
+        for _, etf in aggressive_etfs.iterrows():
+            signal = calculate_strategy(etf['code'], etf['name'], 'aggressive')
+            
+            if signal is None:
+                continue
+                
+            # 格式化消息
+            message = _format_strategy_signal(signal, test=test)
+            
+            # 推送消息
+            if not test:
+                send_wecom_message(message)
+            
+            # 记录交易
+            if not test:
+                log_trade(signal)
+            
+            # 间隔1分钟
+            time.sleep(60)
+    
+    logger.info("策略推送完成")
+    return True
+
+def log_trade(signal):
+    """记录交易流水
+    参数:
+        signal: 策略信号"""
     # 确保交易日志目录存在
     os.makedirs(Config.TRADE_LOG_DIR, exist_ok=True)
     
@@ -311,12 +488,15 @@ def record_trade(signal):
     
     # 创建交易记录
     trade_record = {
-        '时间': get_beijing_time().strftime('%Y-%m-%d %H:%M'),
+        '时间': signal['cf_time'],
         'ETF代码': signal['etf_code'],
         'ETF名称': signal['etf_name'],
         '操作': signal['action'],
         '仓位比例': signal['position'],
         '总评分': signal['total_score'],
+        '风险评分': signal['risk_score'],
+        '收益评分': signal['return_score'],
+        '当前价格': signal['current_price'],
         '策略依据': signal['rationale']
     }
     
@@ -331,178 +511,193 @@ def record_trade(signal):
         pd.DataFrame([trade_record]).to_csv(filepath, index=False)
     logger.info(f"交易记录已保存: {signal['etf_name']} - {signal['action']}")
 
-def get_arbitrage_status():
-    """获取套利状态"""
+def _format_strategy_signal(signal, test=False):
+    """格式化策略信号消息"""
+    if not signal:
+        return "无有效策略信号"
+    
+    # 构建消息
+    message = f"{'【测试策略信号】' if test else '【策略信号】'}\n"
+    message += f"CF系统时间：{signal['cf_time']}\n"
+    message += f"ETF代码：{signal['etf_code']}\n"
+    message += f"名称：{signal['etf_name']}\n"
+    message += f"操作建议：{signal['action']}\n"
+    message += f"仓位比例：{signal['position']}%\n"
+    message += f"综合评分：{signal['total_score']:.1f}\n"
+    message += f"风险评分：{signal['risk_score']:.1f}\n"
+    message += f"收益评分：{signal['return_score']:.1f}\n"
+    message += f"当前价格：{signal['current_price']:.4f}\n"
+    message += f"策略依据：{signal['rationale']}"
+    
+    return message
+
+def get_current_stock_pool():
+    """获取当前股票池"""
     try:
-        if not os.path.exists(Config.ARBITRAGE_STATUS_FILE):
+        # 获取最新股票池文件
+        pool_files = [f for f in os.listdir(Config.STOCK_POOL_DIR) if f.startswith('stock_pool_')]
+        if not pool_files:
+            error_msg = "【数据错误】未找到股票池文件"
+            logger.error(error_msg)
+            send_wecom_message(error_msg)
             return None
         
-        with open(Config.ARBITRAGE_STATUS_FILE, 'r') as f:
-            return json.load(f)
-    except Exception as e:
-        logger.error(f"读取套利状态失败: {str(e)}")
-        return None
-
-def update_arbitrage_status(etf_code, etf_name, timestamp, current_price, target_price, stop_loss_price):
-    """更新套利状态"""
-    try:
-        status = {
-            "etf_code": etf_code,
-            "etf_name": etf_name,
-            "timestamp": timestamp,
-            "current_price": current_price,
-            "target_price": target_price,
-            "stop_loss_price": stop_loss_price
-        }
+        # 按文件名排序，获取最新文件
+        latest_file = max(pool_files)
+        filepath = os.path.join(Config.STOCK_POOL_DIR, latest_file)
         
-        with open(Config.ARBITRAGE_STATUS_FILE, 'w') as f:
-            json.dump(status, f, indent=2)
+        # 读取股票池数据
+        df = pd.read_csv(filepath)
+        
+        # 重命名列以匹配策略函数期望
+        df = df.rename(columns={
+            'etf_code': 'code',
+            'etf_name': 'name'
+        })
+        
+        return df
     except Exception as e:
-        logger.error(f"更新套利状态失败: {str(e)}")
+        error_msg = f"【系统错误】获取股票池失败: {str(e)}"
+        logger.error(error_msg)
+        send_wecom_message(error_msg)
+        return None
 
 def check_arbitrage_opportunity():
     """检查套利机会"""
     try:
-        # 1. 获取ETF列表
+        # 检查数据完整性
+        integrity_check = check_data_integrity()
+        if integrity_check:
+            error_msg = f"【数据错误】{integrity_check}"
+            logger.error(error_msg)
+            send_wecom_message(error_msg)
+            return False
+        
+        # 获取ETF列表
         etf_list = get_all_etf_list()
         if etf_list is None or etf_list.empty:
-            logger.error("套利检查失败：ETF列表为空")
-            return None
+            error_msg = "【数据错误】套利检查失败：ETF列表为空"
+            logger.error(error_msg)
+            send_wecom_message(error_msg)
+            return False
         
-        # 2. 检查每只ETF
+        # 检查每只ETF
+        opportunities = []
         for _, etf in etf_list.iterrows():
             etf_code = etf['code']
+            etf_name = etf['name']
             
-            # 获取ETF数据
-            from data_fix import get_etf_data
-            etf_data = get_etf_data(etf_code, 'daily')
-            if etf_data is None or etf_data.empty:
-                continue
-            
-            # 获取IOPV数据（简化示例）
-            # 实际应用中需要从其他数据源获取IOPV
-            
-            # 检查溢价率
-            latest = etf_data.iloc[-1]
-            # 假设IOPV为某个值
-            iopv = latest['close'] * 0.98  # 示例：假设IOPV比收盘价低2%
-            
-            premium = (latest['close'] - iopv) / iopv * 100
-            
-            # 如果溢价率超过阈值，视为套利机会
-            if premium > 0.5:  # 0.5%阈值
-                # 生成套利信号
-                signal = {
-                    'etf_code': etf_code,
-                    'etf_name': etf['name'],
-                    'action': '买入',
-                    'position': '套利仓',
-                    'total_score': 90,  # 高评分
-                    'rationale': f'溢价率 {premium:.2f}%，存在套利机会'
-                }
+            try:
+                # 获取ETF数据
+                etf_data = get_etf_data(etf_code, 'daily')
+                if etf_data is None or etf_data.empty:
+                    continue
                 
-                # 记录交易
-                record_trade(signal)
+                # 获取IOPV数据
+                try:
+                    from data_fix import get_etf_iopv_data
+                    iopv_data = get_etf_iopv_data(etf_code)
+                    if iopv_data is not None and not iopv_data.empty:
+                        latest_iopv = iopv_data['iopv'].iloc[-1]
+                    else:
+                        continue
+                except Exception as e:
+                    logger.debug(f"获取{etf_code} IOPV数据失败: {str(e)}")
+                    continue
                 
+                # 检查溢价率
+                latest = etf_data.iloc[-1]
+                premium_rate = (latest['close'] - latest_iopv) / latest_iopv * 100
+                
+                # 如果溢价率超过阈值，视为套利机会
+                # 正溢价：ETF价格 > IOPV，适合申购套利
+                # 负溢价：ETF价格 < IOPV，适合赎回套利
+                if abs(premium_rate) >= 0.5:  # 0.5%阈值
+                    # 计算目标价格和止损价格
+                    current_price = latest['close']
+                    target_price = current_price * (1 + 0.01 * (1 if premium_rate > 0 else -1))
+                    stop_loss_price = current_price * (1 - 0.01 * (1 if premium_rate > 0 else -1))
+                    
+                    opportunities.append({
+                        'etf_code': etf_code,
+                        'etf_name': etf_name,
+                        'premium_rate': premium_rate,
+                        'current_price': current_price,
+                        'iopv': latest_iopv,
+                        'target_price': target_price,
+                        'stop_loss_price': stop_loss_price
+                    })
+            except Exception as e:
+                error_msg = f"【系统错误】处理ETF {etf_code} 时出错: {str(e)}"
+                logger.error(error_msg)
+                send_wecom_message(error_msg)
+        
+        if opportunities:
+            logger.info(f"发现 {len(opportunities)} 个套利机会")
+            
+            # 推送所有套利机会
+            for opportunity in opportunities:
                 # 生成消息
                 message = "【ETF套利机会】\n"
-                message += f"• {etf['name']} ({etf_code})\n"
-                message += f"  当前价格: {latest['close']:.4f}\n"
-                message += f"  IOPV: {iopv:.4f}\n"
-                message += f"  溢价率: {premium:.2f}%\n"
-                message += f"止盈目标：{latest['close'] * 1.01:.4f}\n"
-                message += f"止损价格：{latest['close'] * 0.99:.4f}\n"
-                message += "建议：立即买入，目标止盈，严格止损。"
+                message += f"• {opportunity['etf_name']} ({opportunity['etf_code']})\n"
+                message += f"  当前价格: {opportunity['current_price']:.4f}\n"
+                message += f"  IOPV: {opportunity['iopv']:.4f}\n"
+                message += f"  溢价率: {opportunity['premium_rate']:.2f}%\n"
+                message += f"  止盈目标：{opportunity['target_price']:.4f}\n"
+                message += f"  止损价格：{opportunity['stop_loss_price']:.4f}\n"
+                
+                if opportunity['premium_rate'] > 0:
+                    message += "  建议：溢价套利，申购ETF份额，等待溢价消失\n"
+                else:
+                    message += "  建议：折价套利，赎回ETF份额，等待折价消失\n"
                 
                 # 发送消息
                 send_wecom_message(message)
                 
-                # 更新套利状态
-                current_time = get_beijing_time().isoformat()
-                update_arbitrage_status(etf_code, etf['name'], current_time, latest['close'], 
-                                      latest['close'] * 1.01, latest['close'] * 0.99)
-                
-                logger.info(f"发现套利机会: {etf_code} - 溢价率 {premium:.2f}%")
-                return True
-        
-        logger.info("未发现套利机会")
-        return False
-    except Exception as e:
-        logger.error(f"套利检查失败: {str(e)}")
-        return False
-
-def scan_arbitrage_opportunities():
-    """扫描套利机会"""
-    logger.info("开始扫描套利机会")
-    # 获取所有ETF列表
-    etf_list = get_all_etf_list()
-    if etf_list is None or etf_list.empty:
-        logger.error("未获取到ETF列表，跳过套利扫描")
-        return None
-    
-    # 扫描每只ETF
-    opportunities = []
-    for _, etf in etf_list.iterrows():
-        etf_code = etf['code']
-        etf_name = etf['name']
-        try:
-            # 获取ETF溢价率
-            premium_rate = calculate_premium_rate(etf_code)
+                # 记录套利机会
+                record_arbitrage_opportunity(opportunity)
             
-            # 判断是否有套利机会
-            # 通常，溢价率过高（如>2%）或过低（如<-2%）可能存在套利机会
-            # 这里可以根据实际情况调整阈值
-            if abs(premium_rate) >= 2.0:
-                # 获取ETF当前价格
-                from data_fix import get_etf_data
-                etf_data = get_etf_data(etf_code, 'intraday')
-                if etf_data is None or etf_data.empty:
-                    continue
-                
-                current_price = etf_data['close'].iloc[-1]
-                # 计算目标价格和止损价格
-                target_price = current_price * (1 + 0.01 * (1 if premium_rate > 0 else -1))
-                stop_loss_price = current_price * (1 - 0.01 * (1 if premium_rate > 0 else -1))
-                
-                opportunity = {
-                    'etf_code': etf_code,
-                    'etf_name': etf_name,
-                    'premium_rate': premium_rate,
-                    'current_price': current_price,
-                    'target_price': target_price,
-                    'stop_loss_price': stop_loss_price
-                }
-                opportunities.append(opportunity)
-        except Exception as e:
-            logger.error(f"扫描{etf_code}时出错: {str(e)}")
-    
-    if opportunities:
-        logger.info(f"发现 {len(opportunities)} 个套利机会")
-        return opportunities
-    else:
-        logger.info("未发现套利机会")
-        return None
-
-def calculate_premium_rate(etf_code):
-    """计算ETF溢价率"""
-    try:
-        # 获取ETF数据
-        from data_fix import get_etf_data
-        etf_data = get_etf_data(etf_code, 'daily')
-        if etf_data is None or etf_data.empty:
-            return 0.0
-        
-        # 获取IOPV数据（简化示例）
-        # 实际应用中需要从其他数据源获取IOPV
-        latest = etf_data.iloc[-1]
-        iopv = latest['close'] * 0.98  # 示例：假设IOPV比收盘价低2%
-        
-        # 计算溢价率
-        premium_rate = (latest['close'] - iopv) / iopv * 100
-        return premium_rate
+            return True
+        else:
+            logger.info("未发现套利机会")
+            return False
     except Exception as e:
-        logger.error(f"计算{etf_code}溢价率失败: {str(e)}")
-        return 0.0
+        error_msg = f"【系统错误】套利检查失败: {str(e)}"
+        logger.error(error_msg)
+        send_wecom_message(error_msg)
+        return False
+
+def record_arbitrage_opportunity(opportunity):
+    """记录套利机会"""
+    # 确保套利目录存在
+    os.makedirs(Config.ARBITRAGE_DIR, exist_ok=True)
+    
+    # 创建日志文件名
+    filename = f"arbitrage_{get_beijing_time().strftime('%Y%m%d')}.csv"
+    filepath = os.path.join(Config.ARBITRAGE_DIR, filename)
+    
+    # 创建交易记录
+    arbitrage_record = {
+        '时间': get_beijing_time().strftime('%Y-%m-%d %H:%M'),
+        'ETF代码': opportunity['etf_code'],
+        'ETF名称': opportunity['etf_name'],
+        '溢价率': opportunity['premium_rate'],
+        '当前价格': opportunity['current_price'],
+        'IOPV': opportunity['iopv'],
+        '止盈目标': opportunity['target_price'],
+        '止损价格': opportunity['stop_loss_price']
+    }
+    
+    # 保存到CSV
+    if os.path.exists(filepath):
+        # 追加到现有文件
+        df = pd.read_csv(filepath)
+        df = pd.concat([df, pd.DataFrame([arbitrage_record])], ignore_index=True)
+        df.to_csv(filepath, index=False)
+    else:
+        # 创建新文件
+        pd.DataFrame([arbitrage_record]).to_csv(filepath, index=False)
+    logger.info(f"套利机会已记录: {opportunity['etf_name']} - 溢价率 {opportunity['premium_rate']:.2f}%")
 
 @app.route('/cron/new-stock-info', methods=['GET', 'POST'])
 def cron_new_stock_info():
@@ -513,6 +708,15 @@ def cron_new_stock_info():
     if not is_trading_day():
         logger.info("今天不是交易日，跳过新股信息推送")
         response = {"status": "skipped", "message": "Not trading day"}
+        return jsonify(response) if has_app_context() else response
+    
+    # 检查是否已经推送过
+    if read_new_stock_pushed_flag(get_beijing_time().date())[1]:
+        logger.info("今天已经推送过新股信息，跳过")
+        response = {
+            "status": "skipped",
+            "message": "New stock info already pushed today"
+        }
         return jsonify(response) if has_app_context() else response
     
     # 推送新股申购信息
@@ -533,14 +737,35 @@ def cron_push_strategy():
     """计算策略信号并推送到企业微信"""
     logger.info("策略信号推送任务触发")
     
+    # 检查数据完整性
+    integrity_check = check_data_integrity()
+    if integrity_check:
+        error_msg = f"【数据错误】{integrity_check}"
+        logger.error(error_msg)
+        send_wecom_message(error_msg)
+        response = {"status": "error", "message": error_msg}
+        return jsonify(response) if has_app_context() else response
+    
     # 检查是否为交易日
     if not is_trading_day():
         logger.info("今天不是交易日，跳过策略信号推送")
         response = {"status": "skipped", "message": "Not trading day"}
         return jsonify(response) if has_app_context() else response
     
+    # 检查是否已经推送过
+    today = get_beijing_time().date()
+    stock_pool_file = f"stock_pool_{today.strftime('%Y%m%d')}.csv"
+    stock_pool_path = os.path.join(Config.STOCK_POOL_DIR, stock_pool_file)
+    
+    if not os.path.exists(stock_pool_path):
+        error_msg = "【数据错误】股票池未生成，无法推送策略"
+        logger.error(error_msg)
+        send_wecom_message(error_msg)
+        response = {"status": "error", "message": "Stock pool not generated"}
+        return jsonify(response) if has_app_context() else response
+    
     # 推送策略
-    success = push_strategy()
+    success = push_strategy_results()
     
     response = {"status": "success" if success else "error"}
     return jsonify(response) if has_app_context() else response
@@ -549,6 +774,15 @@ def cron_push_strategy():
 def cron_update_stock_pool():
     """每周五16:00北京时间更新ETF股票池（5只稳健仓 + 5只激进仓）"""
     logger.info("股票池更新任务触发")
+    
+    # 检查数据完整性
+    integrity_check = check_data_integrity()
+    if integrity_check:
+        error_msg = f"【数据错误】{integrity_check}"
+        logger.error(error_msg)
+        send_wecom_message(error_msg)
+        response = {"status": "error", "message": error_msg}
+        return jsonify(response) if has_app_context() else response
     
     # 检查是否为交易日
     if not is_trading_day():
@@ -560,6 +794,16 @@ def cron_update_stock_pool():
     if datetime.datetime.now().weekday() != 4:  # 4 = Friday
         logger.info("今天不是周五，跳过股票池更新")
         response = {"status": "skipped", "message": "Not Friday"}
+        return jsonify(response) if has_app_context() else response
+    
+    # 检查是否已经更新过
+    today = get_beijing_time().date()
+    stock_pool_file = f"stock_pool_{today.strftime('%Y%m%d')}.csv"
+    stock_pool_path = os.path.join(Config.STOCK_POOL_DIR, stock_pool_file)
+    
+    if os.path.exists(stock_pool_path):
+        logger.info("今天已经更新过股票池，跳过")
+        response = {"status": "skipped", "message": "Stock pool already updated today"}
         return jsonify(response) if has_app_context() else response
     
     # 生成股票池
@@ -575,6 +819,15 @@ def cron_update_stock_pool():
 def cron_arbitrage_scan():
     """套利扫描任务"""
     logger.info("套利扫描任务触发")
+    
+    # 检查数据完整性
+    integrity_check = check_data_integrity()
+    if integrity_check:
+        error_msg = f"【数据错误】{integrity_check}"
+        logger.error(error_msg)
+        send_wecom_message(error_msg)
+        response = {"status": "error", "message": error_msg}
+        return jsonify(response) if has_app_context() else response
     
     # 检查是否为交易日
     if not is_trading_day():
@@ -632,7 +885,7 @@ def main():
     
     elif task == 'test_execute':
         # T05: 测试执行策略并推送结果
-        success = push_strategy()
+        success = push_strategy_results(test=True)
         response = {"status": "success" if success else "error"}
         print(json.dumps(response, indent=2))
         return response
@@ -640,7 +893,42 @@ def main():
     elif task == 'test_reset':
         # T06: 测试重置所有仓位（测试用）
         logger.info("重置所有仓位（测试用）")
-        # 实现重置逻辑
+        # 获取当前股票池
+        stock_pool = get_current_stock_pool()
+        if stock_pool is None or stock_pool.empty:
+            error_msg = "【数据错误】股票池为空，无法重置仓位"
+            logger.error(error_msg)
+            send_wecom_message(error_msg)
+            response = {"status": "error", "message": "No stock pool available"}
+            print(json.dumps(response, indent=2))
+            return response
+        
+        # 创建重置信号
+        beijing_time = get_beijing_time().strftime('%Y-%m-%d %H:%M')
+        for _, etf in stock_pool.iterrows():
+            etf_type = 'stable' if etf['type'] == '稳健仓' else 'aggressive'
+            signal = {
+                'etf_code': etf['code'],
+                'etf_name': etf['name'],
+                'cf_time': beijing_time,
+                'action': 'strong_sell',
+                'position': 0,
+                'rationale': '测试重置仓位'
+            }
+            
+            # 格式化消息
+            message = _format_strategy_signal(signal, test=True)
+            
+            # 推送消息
+            send_wecom_message(message)
+            
+            # 记录交易
+            log_trade(signal)
+            
+            # 间隔1分钟
+            time.sleep(60)
+        
+        logger.info("测试重置仓位完成")
         response = {"status": "success", "message": "Positions reset"}
         print(json.dumps(response, indent=2))
         return response
@@ -652,40 +940,63 @@ def main():
         print(json.dumps(response, indent=2))
         return response
     
-    elif task == 'run_new_stock_info':
-        # 每日 9:35 新股信息推送
-        return cron_new_stock_info()
+    elif task == 'crawl_new_stock':
+        # 9:31 AM：爬取当天新股申购、新上市股票信息
+        success_new_stock = crawl_new_stock_info()
+        success_listing = crawl_new_listing_info()
+        response = {
+            "status": "success" if success_new_stock and success_listing else "partial_success",
+            "new_stock": "success" if success_new_stock else "failed",
+            "listing": "success" if success_listing else "failed"
+        }
+        print(json.dumps(response, indent=2))
+        return response
     
-    elif task == 'push_strategy':
-        # 每日 14:50 策略信号推送
-        return cron_push_strategy()
-    
-    elif task == 'update_stock_pool':
-        # 每周五 16:00 更新股票池
-        return cron_update_stock_pool()
-    
-    elif task == 'crawl_daily':
-        # 每日 15:30 爬取日线数据
-        return cron_crawl_daily()
+    elif task == 'push_new_stock':
+        # 9:45 AM：推送新股申购和新上市股票信息
+        success_new_stock = push_new_stock_info()
+        success_listing = push_listing_info()
+        response = {
+            "status": "success" if success_new_stock and success_listing else "partial_success",
+            "new_stock": "success" if success_new_stock else "failed",
+            "listing": "success" if success_listing else "failed"
+        }
+        print(json.dumps(response, indent=2))
+        return response
     
     elif task == 'crawl_intraday':
-        # 盘中数据爬取（每30分钟）
-        return cron_crawl_intraday()
-    
-    elif task == 'cleanup':
-        # 每天 00:00 清理旧数据
-        return cron_cleanup()
+        # 9:55 AM：爬取当天ETF交易数据
+        success = crawl_etf_data(data_type='intraday')
+        response = {"status": "success" if success else "error", "message": "Intraday data crawl completed"}
+        print(json.dumps(response, indent=2))
+        return response
     
     elif task == 'arbitrage-scan':
-        # 套利扫描
-        return cron_arbitrage_scan()
+        # 13:00 PM：套利扫描
+        success = check_arbitrage_opportunity()
+        response = {"status": "success" if success else "error", "message": "Arbitrage scan completed"}
+        print(json.dumps(response, indent=2))
+        return response
     
-    elif task == 'resume_crawl':
-        # 断点续爬
-        return resume_crawl()
+    elif task == 'push_strategy':
+        # 13:00 PM：推送策略信号
+        success = push_strategy_results()
+        response = {"status": "success" if success else "error", "message": "Strategy push completed"}
+        print(json.dumps(response, indent=2))
+        return response
+    
+    elif task == 'crawl_daily':
+        # 4:00 PM：爬取日线数据
+        return cron_crawl_daily()
+    
+    elif task == 'cleanup':
+        # 00:00 AM：清理旧数据
+        return cron_cleanup()
     
     else:
-        logger.error(f"未知任务类型: {task}")
+        error_msg = f"【系统错误】未知任务类型: {task}"
+        logger.error(error_msg)
+        send_wecom_message(error_msg)
         response = {"status": "error", "message": "Unknown task type"}
         print(json.dumps(response, indent=2))
         return response
