@@ -19,6 +19,9 @@ on:
     
     # 每天 00:00 清理旧数据 (北京时间 UTC+8)
     - cron: '0 16 * * *' # UTC 16:00 = 北京时间 00:00
+    
+    # 断点续爬任务（每2小时执行一次，仅在非交易时间）
+    - cron: '0 */2 * * *' # 每2小时执行一次
 
   # 允许手动触发
   workflow_dispatch:
@@ -42,6 +45,7 @@ on:
           - 'push_strategy'				#【T14】手动推送策略信号
           - 'crawl_daily'				#【T15】手动爬取日线数据
           - 'cleanup'					#【T16】手动清理旧数据
+          - 'resume_crawl'				#【T17】手动断点续爬
 
 jobs:
   # 9:31 AM：爬取当天新股申购、新上市股票信息
@@ -222,6 +226,75 @@ jobs:
         env:
           TASK: cleanup
         run: python main.py
+
+  # 断点续爬任务（每2小时执行一次，仅在非交易时间）
+  resume-crawl:
+    if: >-
+      github.event.inputs.task == 'resume_crawl' || 
+      (
+        github.schedule == '0 */2 * * *' && 
+        (
+          # 检查是否在18:00-23:59 (UTC 10:00-15:59)
+          (utc_hour >= 10 && utc_hour <= 15) ||
+          # 检查是否在00:00-09:00 (UTC 16:00-01:00)
+          (utc_hour >= 16 || utc_hour <= 1)
+        )
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install akshare baostock
+      
+      - name: Debug info
+        run: |
+          echo "Current UTC time: $(date -u '+%Y-%m-%d %H:%M:%S')"
+          echo "Current UTC hour: $(date -u '+%H')"
+          utc_hour=$(date -u '+%H')
+          beijing_hour=$(( (10#$utc_hour + 8) % 24 ))
+          echo "Current Beijing time: $(date '+%Y-%m-%d %H:%M:%S')"
+          echo "Beijing hour: $beijing_hour"
+          
+          # 判断是否在非交易时间 (18:00-09:00)
+          if (( beijing_hour >= 18 || beijing_hour < 9 )); then
+            echo "IN_NON_TRADING_HOURS=true"
+            echo "IN_NON_TRADING_HOURS=true" >> $GITHUB_ENV
+          else
+            echo "IN_NON_TRADING_HOURS=false"
+            echo "IN_NON_TRADING_HOURS=false" >> $GITHUB_ENV
+          fi
+      
+      - name: Run resume crawl (only in non-trading hours)
+        if: env.IN_NON_TRADING_HOURS == 'true'
+        env:
+          TASK: resume_crawl
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+        run: |
+          python main.py
+          
+          # 提交数据变更到仓库
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add data/
+          git commit -m "自动续爬ETF数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
+          git push origin main || echo "Failed to push changes"
+      
+      - name: Skip resume crawl (during trading hours)
+        if: env.IN_NON_TRADING_HOURS != 'true'
+        run: |
+          echo "当前为交易时间 (北京时间 09:00-18:00)，跳过断点续爬任务"
 
   # 测试任务
   run-test-message:
