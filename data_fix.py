@@ -84,6 +84,126 @@ def load_from_cache(etf_code, data_type='daily', days=365):
         return None
     return None
 
+def resume_crawl():
+    """断点续爬任务（真正实现增量爬取）"""
+    logger.info("断点续爬任务触发")
+    
+    # 检查是否为交易日
+    if not is_trading_day():
+        logger.info("今天不是交易日，跳过爬取")
+        return {"status": "skipped", "message": "Not trading day"}
+    
+    # 检查状态文件
+    status_file = os.path.join(Config.RAW_DATA_DIR, 'crawl_status.json')
+    if not os.path.exists(status_file):
+        logger.info("无待续爬任务，启动全新爬取")
+        return cron_crawl_daily()
+    
+    # 加载状态
+    try:
+        with open(status_file, 'r') as f:
+            crawl_status = json.load(f)
+    except Exception as e:
+        error_msg = f"【系统错误】加载爬取状态失败: {str(e)}"
+        logger.error(error_msg)
+        send_wecom_message(error_msg)
+        return {"status": "error", "message": "Failed to load status"}
+    
+    # 筛选未完成的ETF
+    pending_etfs = [
+        code for code, status in crawl_status.items()
+        if status.get('status') in ['in_progress', 'failed']
+    ]
+    
+    if not pending_etfs:
+        logger.info("无待续爬ETF，任务已完成")
+        return {"status": "success", "message": "No pending ETFs"}
+    
+    # 获取所有ETF列表
+    etf_list = get_all_etf_list()
+    if etf_list is None or etf_list.empty:
+        error_msg = "【数据错误】未获取到ETF列表，跳过爬取"
+        logger.error(error_msg)
+        send_wecom_message(error_msg)
+        return {"status": "skipped", "message": "No ETF list available"}
+    
+    # 筛选待爬ETF
+    pending_etf_list = etf_list[etf_list['code'].isin(pending_etfs)]
+    
+    # 继续爬取
+    success_count = 0
+    failed_count = 0
+    for _, etf in pending_etf_list.iterrows():
+        etf_code = etf['code']
+        try:
+            # 获取起始日期（从缓存中获取最后日期）- 关键增量爬取逻辑
+            cached_data = load_from_cache(etf_code, 'daily')
+            start_date = None
+            if cached_data is not None and not cached_data.empty:
+                last_date = cached_data['date'].max()
+                start_date = (last_date + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+                logger.info(f"ETF {etf_code} 已有数据到 {last_date.strftime('%Y-%m-%d')}，从 {start_date} 开始获取新数据")
+            
+            # 标记开始
+            update_crawl_status(etf_code, 'in_progress')
+            logger.info(f"【任务开始】开始续爬 {etf_code}")
+            
+            # 尝试主数据源(AkShare)
+            data = crawl_akshare(etf_code, start_date=start_date)
+            if data is None or data.empty:
+                # 尝试备用数据源1(Baostock)
+                data = crawl_baostock(etf_code, start_date=start_date)
+                if data is None or data.empty:
+                    # 尝试备用数据源2(新浪财经)
+                    data = crawl_sina_finance(etf_code, start_date=start_date)
+            
+            # 检查结果
+            if data is not None and not data.empty:
+                # 保存数据（已在crawl_*函数内部完成增量保存）
+                update_crawl_status(etf_code, 'success')
+                success_count += 1
+                logger.info(f"成功续爬 {etf_code}，共 {len(data)} 条新记录")
+            else:
+                error_msg = f"【数据错误】续爬 {etf_code} 失败：返回空数据"
+                logger.warning(error_msg)
+                send_wecom_message(error_msg)
+                update_crawl_status(etf_code, 'failed', 'Empty data')
+                failed_count += 1
+        except Exception as e:
+            error_msg = f"【系统错误】续爬 {etf_code} 时出错: {str(e)}"
+            logger.error(error_msg)
+            send_wecom_message(error_msg)
+            update_crawl_status(etf_code, 'failed', str(e))
+            failed_count += 1
+        
+        # 避免请求过快
+        time.sleep(1)
+    
+    # 检查是否全部完成
+    remaining = [
+        code for code, status in get_crawl_status().items()
+        if status.get('status') in ['in_progress', 'failed']
+    ]
+    
+    if not remaining:
+        try:
+            os.remove(status_file)
+            logger.info("所有ETF爬取成功，已清理状态文件")
+        except Exception as e:
+            error_msg = f"【系统错误】清理状态文件失败: {str(e)}"
+            logger.warning(error_msg)
+            send_wecom_message(error_msg)
+    
+    # 生成汇总
+    logger.info(f"断点续爬完成：成功 {success_count}/{len(pending_etfs)}，失败 {failed_count}")
+    
+    return {
+        "status": "partial_success" if failed_count > 0 else "success",
+        "total_pending": len(pending_etfs),
+        "success": success_count,
+        "failed": failed_count
+    }
+
 def get_crawl_status():
     """获取当前爬取状态"""
     status_file = os.path.join(Config.RAW_DATA_DIR, 'crawl_status.json')
