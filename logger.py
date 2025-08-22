@@ -1,8 +1,5 @@
 """
-鱼盆ETF投资量化模型 - 日志记录
-说明:
-  本文件提供统一的日志记录功能
-  所有文件放在根目录，简化导入关系
+日志记录
 """
 
 import logging
@@ -10,6 +7,12 @@ import os
 from datetime import datetime
 
 def get_logger(name):
+    # 使用环境变量优先，否则使用配置文件，最后使用默认值
+    log_level = getattr(
+        logging, 
+        os.getenv('LOG_LEVEL', Config.LOG_LEVEL).upper(), 
+        logging.INFO
+    )
     """
     获取配置好的日志记录器
     参数:
