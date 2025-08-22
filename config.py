@@ -61,3 +61,4 @@ class Config:
         for directory in [cls.RAW_DATA_DIR, cls.STOCK_POOL_DIR, cls.TRADE_LOG_DIR, 
                          cls.ERROR_LOG_DIR, cls.NEW_STOCK_DIR, cls.ARBITRAGE_DIR, cls.STATUS_DIR]:
             os.makedirs(directory, exist_ok=True)
+    LOG_LEVEL = 'INFO'
