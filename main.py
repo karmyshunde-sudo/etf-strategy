@@ -16,12 +16,7 @@ from flask import Flask, request, jsonify, has_app_context
 from config import Config
 from logger import get_logger
 from bs4 import BeautifulSoup
-from data_fix import (get_beijing_time, is_trading_day, get_all_etf_list, 
-                     get_new_stock_subscriptions, get_new_stock_listings,
-                     cron_crawl_daily, cron_crawl_intraday, cron_cleanup, resume_crawl,
-                     check_data_integrity, crawl_new_stock_info, crawl_new_listing_info,
-                     mark_new_stock_info_pushed, mark_listing_info_pushed, get_etf_data,
-                     read_new_stock_pushed_flag, read_listing_pushed_flag, send_wecom_message)
+from data_fix import (get_beijing_time, is_trading_day, get_all_etf_list)
 
 # 确保所有数据目录存在
 Config.init_directories()
