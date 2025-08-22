@@ -50,8 +50,10 @@ on:
 jobs:
   # 9:31 AM：爬取当天新股申购、新上市股票信息
   run-crawl-new-stock:
-    # 关键：保持contains表达式在手动触发时总是为true
-    if: ${{ contains('31 1 * * 1-5', github.event.schedule) || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'crawl_new_stock') }}
+    if: ${{ 
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'crawl_new_stock') ||
+      (github.event_name == 'schedule' && contains(github.event.schedule, '31 1 * * 1-5'))
+    }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -87,7 +89,6 @@ jobs:
         env:
           TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'crawl_new_stock' }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
         run: |
           # 执行主程序
           python main.py
@@ -105,8 +106,10 @@ jobs:
 
   # 9:45 AM：推送新股申购和新上市股票信息
   run-push-new-stock:
-    # 关键：保持contains表达式在手动触发时总是为true
-    if: ${{ contains('45 1 * * 1-5', github.event.schedule) || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'push_new_stock') }}
+    if: ${{ 
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'push_new_stock') ||
+      (github.event_name == 'schedule' && contains(github.event.schedule, '45 1 * * 1-5'))
+    }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -141,7 +144,6 @@ jobs:
         env:
           TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'push_new_stock' }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
         run: |
           # 执行主程序
           python main.py
@@ -159,8 +161,10 @@ jobs:
 
   # 9:55 AM：爬取当天ETF交易数据
   run-crawl-intraday:
-    # 关键：保持contains表达式在手动触发时总是为true
-    if: ${{ contains('55 1 * * 1-5', github.event.schedule) || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'crawl_intraday') }}
+    if: ${{ 
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'crawl_intraday') ||
+      (github.event_name == 'schedule' && contains(github.event.schedule, '55 1 * * 1-5'))
+    }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -194,7 +198,6 @@ jobs:
         env:
           TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'crawl_intraday' }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
         run: |
           # 执行主程序
           python main.py
@@ -212,8 +215,10 @@ jobs:
 
   # 13:00 PM：套利扫描、股票池策略计算与推送
   run-arbitrage-and-strategy:
-    # 关键：保持contains表达式在手动触发时总是为true
-    if: ${{ contains('0 5 * * 1-5', github.event.schedule) || (github.event_name == 'workflow_dispatch' && (github.event.inputs.task == 'arbitrage-scan' || github.event.inputs.task == 'push_strategy')) }}
+    if: ${{ 
+      (github.event_name == 'workflow_dispatch' && (github.event.inputs.task == 'arbitrage-scan' || github.event.inputs.task == 'push_strategy')) ||
+      (github.event_name == 'schedule' && contains(github.event.schedule, '0 5 * * 1-5'))
+    }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -249,7 +254,6 @@ jobs:
         env:
           TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'arbitrage-scan' }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
         run: |
           # 执行主程序
           python main.py
@@ -266,7 +270,6 @@ jobs:
         env:
           TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'push_strategy' }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
         run: |
           # 执行主程序
           python main.py
@@ -284,8 +287,10 @@ jobs:
 
   # 16:00 PM：爬取日线数据
   run-crawl-daily:
-    # 关键：保持contains表达式在手动触发时总是为true
-    if: ${{ contains('0 8 * * 1-5', github.event.schedule) || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'crawl_daily') }}
+    if: ${{ 
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'crawl_daily') ||
+      (github.event_name == 'schedule' && contains(github.event.schedule, '0 8 * * 1-5'))
+    }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -319,7 +324,6 @@ jobs:
         env:
           TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'crawl_daily' }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
         run: |
           # 执行主程序
           python main.py
@@ -337,8 +341,10 @@ jobs:
 
   # 00:00 AM：清理旧数据
   run-cleanup:
-    # 关键：保持contains表达式在手动触发时总是为true
-    if: ${{ contains('0 16 * * *', github.event.schedule) || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'cleanup') }}
+    if: ${{ 
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'cleanup') ||
+      (github.event_name == 'schedule' && contains(github.event.schedule, '0 16 * * *'))
+    }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -371,7 +377,6 @@ jobs:
         env:
           TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'cleanup' }}
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
         run: |
           # 执行主程序
           python main.py
@@ -389,8 +394,10 @@ jobs:
 
   # 断点续爬任务（每2小时执行一次，仅在非交易时间）
   resume-crawl:
-    # 关键：保持contains表达式在手动触发时总是为true
-    if: ${{ contains('0 */2 * * *', github.event.schedule) || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'resume_crawl') }}
+    if: ${{ 
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'resume_crawl') ||
+      (github.event_name == 'schedule' && contains(github.event.schedule, '0 */2 * * *'))
+    }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -427,12 +434,8 @@ jobs:
           
           # 判断是否在非交易时间 (18:00-09:00)
           if (( beijing_hour >= 18 || beijing_hour < 9 )); then
-            echo "IN_NON_TRADING_HOURS=true"
-            echo "IN_NON_TRADING_HOURS=true" >> $GITHUB_ENV
             echo "non_trading_hours=true" >> $GITHUB_OUTPUT
           else
-            echo "IN_NON_TRADING_HOURS=false"
-            echo "IN_NON_TRADING_HOURS=false" >> $GITHUB_ENV
             echo "non_trading_hours=false" >> $GITHUB_OUTPUT
           fi
       
@@ -455,3 +458,4 @@ jobs:
         if: steps.check_hours.outputs.non_trading_hours != 'true'
         run: |
           echo "当前为交易时间 (北京时间 09:00-18:00)，跳过断点续爬任务"
+          echo "Beijing time: $(date '+%Y-%m-%d %H:%M:%S')"
