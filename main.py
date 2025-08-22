@@ -19,7 +19,7 @@ from bs4 import BeautifulSoup
 from data_fix import (
                      get_beijing_time, is_trading_day, get_all_etf_list,
                      get_new_stock_subscriptions, get_new_stock_listings,
-                     get_etf_data, calculate_ETF_score, generate_stock_pool,
+                     get_etf_data, generate_stock_pool,
                      get_current_stock_pool, calculate_strategy, log_trade,
                      format_new_stock_subscriptions_message, format_new_stock_listings_message,
                      check_arbitrage_opportunity, check_data_integrity, crawl_etf_data,
