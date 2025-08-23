@@ -252,7 +252,7 @@ def format_new_stock_subscriptions_message(new_stocks):
     for _, stock in new_stocks.iterrows():
         message += f"• {stock.get('股票简称', '')} ({stock.get('股票代码', '')})\n"
         message += f"  发行价: {stock.get('发行价格', '未知')}\n"
-        message += f"  申购上限: {stock.get('申购上限', '未知')}\n\n"
+        message += f"  申购上限: {stock.get('申购上限', '未知')}\n"
         message += f"  申购日期: {stock.get('申购日期', '未知')}\n\n"
     
     return message
@@ -265,7 +265,7 @@ def format_new_stock_listings_message(new_listings):
     message = "【今日新上市交易】\n"
     for _, stock in new_listings.iterrows():
         message += f"• {stock.get('股票简称', '')} ({stock.get('股票代码', '')})\n"
-        message += f"  发行价: {stock.get('发行价格', '未知')}\n\n"
+        message += f"  发行价: {stock.get('发行价格', '未知')}\n"
         message += f"  上市日期: {stock.get('上市日期', '未知')}\n\n"
       
     return message
