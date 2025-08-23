@@ -20,6 +20,13 @@ Config.init_directories()
 
 logger = get_logger(__name__)
 
+try:
+    akshare_version = ak.__version__
+except AttributeError:
+    akshare_version = "unknown"
+
+logger.info(f"使用AkShare版本: {akshare_version}")
+
 def get_beijing_time():
     """获取北京时间"""
     beijing_tz = pytz.timezone('Asia/Shanghai')
