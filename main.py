@@ -852,6 +852,102 @@ def cron_arbitrage_scan():
     response = {"status": "success" if success else "error"}
     return jsonify(response) if has_app_context() else response
 
+@app.route('/cron/resume_crawl', methods=['GET', 'POST'])
+def cron_resume_crawl():
+    """断点续爬任务（支持非交易日执行）"""
+    logger.info("断点续爬任务触发")
+    
+    # 移除了交易日检查 - 这是关键修复
+    # 现在可以在非交易日（如周末）执行续爬
+    
+    # 检查状态文件
+    status_file = os.path.join(Config.RAW_DATA_DIR, 'crawl_status.json')
+    if not os.path.exists(status_file):
+        logger.info("无待续爬任务，启动全新爬取")
+        return cron_crawl_daily()
+    
+    # 加载状态
+    try:
+        with open(status_file, 'r') as f:
+            crawl_status = json.load(f)
+    except Exception as e:
+        error_msg = f"【系统错误】加载爬取状态失败: {str(e)}"
+        logger.error(error_msg)
+        send_wecom_message(error_msg)
+        return {"status": "error", "message": "Failed to load status"}
+    
+    # 筛选未完成的ETF
+    pending_etfs = [
+        code for code, status in crawl_status.items()
+        if status.get('status') in ['in_progress', 'failed']
+    ]
+    
+    # 如果没有待续爬任务，启动全新爬取
+    if not pending_etfs:
+        logger.info("无待续爬任务，启动全新爬取")
+        return cron_crawl_daily()
+    
+    # 执行续爬
+    success_count = 0
+    failed_count = 0
+    
+    for etf_code in pending_etfs:
+        try:
+            # 标记开始
+            update_crawl_status(etf_code, 'in_progress')
+            logger.info(f"【任务开始】开始续爬 {etf_code}")
+            
+            # 获取起始日期（从缓存中获取最后日期）- 关键增量爬取逻辑
+            cached_data = load_from_cache(etf_code, 'daily')
+            start_date = None
+            if cached_data is not None and not cached_data.empty:
+                last_date = cached_data['date'].max()
+                start_date = (last_date + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+                logger.info(f"ETF {etf_code} 已有数据到 {last_date.strftime('%Y-%m-%d')}，从 {start_date} 开始获取新数据")
+            
+            # 尝试主数据源(AkShare)
+            data = get_etf_data(etf_code, 'daily')
+            
+            # 检查结果
+            if data is not None and not data.empty:
+                # 保存数据（已在get_etf_data内部完成）
+                update_crawl_status(etf_code, 'success')
+                success_count += 1
+                logger.info(f"成功续爬 {etf_code}，共 {len(data)} 条新记录")
+            else:
+                error_msg = f"【数据错误】续爬 {etf_code} 失败：返回空数据"
+                logger.warning(error_msg)
+                send_wecom_message(error_msg)
+                update_crawl_status(etf_code, 'failed', 'Empty data')
+                failed_count += 1
+        except Exception as e:
+            error_msg = f"【系统错误】续爬 {etf_code} 时出错: {str(e)}"
+            logger.error(error_msg)
+            send_wecom_message(error_msg)
+            update_crawl_status(etf_code, 'failed', error_msg)
+            failed_count += 1
+        
+        # 避免请求过快
+        time.sleep(1)
+    
+    # 检查是否全部完成
+    remaining = [code for code, status in get_crawl_status().items()
+                 if status.get('status') in ['in_progress', 'failed']]
+    if not remaining:
+        try:
+            os.remove(status_file)
+            logger.info("所有ETF爬取成功，已清理状态文件")
+        except Exception as e:
+            logger.warning(f"清理状态文件失败: {str(e)}")
+    
+    return {
+        "status": "success" if failed_count == 0 else "partial_success",
+        "success_count": success_count,
+        "failed_count": failed_count,
+        "remaining": len(remaining)
+    }
+
+
 def main():
     """主函数"""
     # 从环境变量获取任务类型
@@ -1055,7 +1151,13 @@ def main():
         result = cron_cleanup()
         print(json.dumps(result, indent=2))
         return result
-    
+
+    elif task == 'resume_crawl':
+        # 断点续爬任务（支持非交易日执行）
+        result = cron_resume_crawl()
+        print(json.dumps(result, indent=2))
+        return result
+
     else:
         error_msg = f"【系统错误】未知任务类型: {task}"
         logger.error(error_msg)
