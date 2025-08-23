@@ -6,7 +6,7 @@ baostock
 tushare
 pytz
 numpy
-akshare>=1.17.38  # 确保使用最新版
+akshare==1.18.32  # 截至2025年8月23日
 pandas>=1.5.3
 jqdatasdk
 retrying==1.3.3
