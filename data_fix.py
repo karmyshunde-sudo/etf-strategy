@@ -15,11 +15,11 @@ from config import Config
 from logger import get_logger
 from retrying import retry
 
-# 获取AkShare版本
-try:
-    akshare_version = ak.__version__
-except AttributeError:
-    akshare_version = "unknown"
+if ak.__version__ < '1.18.0':
+    error_msg = f"【系统错误】AkShare版本过低 ({ak.__version__})，需要1.18.0+才能支持可转债数据接口"
+    logger.error(error_msg)
+    send_wecom_message(error_msg)
+    raise RuntimeError("AkShare版本过低")
 
 # 确保所有数据目录存在（关键修复）
 Config.init_directories()
