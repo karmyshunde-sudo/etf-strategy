@@ -91,6 +91,11 @@ def check_new_stock_completeness(df):
     required_columns = ['股票代码', '股票简称', '发行价格', '申购上限', '申购日期']
     return check_data_completeness(df, required_columns, min_records=1)
 
+def check_convertible_bond_completeness(df):
+    """检查可转债数据完整性"""
+    required_columns = ['债券代码', '债券简称', '转股价格', '申购上限', '申购日期']
+    return check_data_completeness(df, required_columns, min_records=1)
+
 def check_new_listing_completeness(df):
     """检查新上市交易数据完整性"""
     required_columns = ['股票代码', '股票简称', '发行价格', '上市日期']
@@ -143,6 +148,11 @@ def get_new_stock_subscriptions(test=False):
                 df = akshare_retry(ak.stock_xgsglb_em)
                 
                 if not df.empty:
+                    # 关键修复：添加详细日志记录返回数据结构
+                    logger.info(f"AkShare返回新股数据，共 {len(df)} 条记录")
+                    logger.info(f"AkShare返回的列名: {df.columns.tolist()}")
+                    logger.info(f"数据预览:\n{df.head().to_markdown(index=False)}")
+                    
                     # 动态匹配日期列
                     date_col = next((col for col in df.columns 
                                    if any(kw in col.lower() for kw in ['申购日期', 'ipo_date', 'issue_date'])), None)
@@ -164,11 +174,58 @@ def get_new_stock_subscriptions(test=False):
                                 # 确保列名标准化
                                 if '申购日期' not in df.columns:
                                     df['申购日期'] = date_str
-                                return df[['股票代码', '股票简称', '发行价格', '申购上限', '申购日期']]
+                                # 添加类型标识
+                                df['类型'] = '股票'
+                                return df[['股票代码', '股票简称', '发行价格', '申购上限', '申购日期', '类型']]
                             else:
                                 logger.warning(f"{'测试模式' if test else '正常模式'}: AkShare返回的新股数据不完整，将尝试备用数据源...")
             except Exception as e:
                 logger.error(f"{'测试模式' if test else '正常模式'}: AkShare获取新股信息失败: {str(e)}", exc_info=True)
+            
+            # 尝试获取可转债数据
+            try:
+                logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从AkShare获取可转债申购信息...")
+                cb_df = ak.bond_cb_issue_em()
+                if not cb_df.empty:
+                    # 关键修复：添加详细日志记录返回数据结构
+                    logger.info(f"AkShare返回可转债数据，共 {len(cb_df)} 条记录")
+                    logger.info(f"AkShare可转债返回的列名: {cb_df.columns.tolist()}")
+                    logger.info(f"可转债数据预览:\n{cb_df.head().to_markdown(index=False)}")
+                    
+                    # 动态匹配日期列
+                    date_col = next((col for col in cb_df.columns 
+                                   if any(kw in col.lower() for kw in ['申购日期', 'subscribe_date'])), None)
+                    
+                    if date_col and date_col in cb_df.columns:
+                        # 确保日期列是正确格式
+                        if not pd.api.types.is_datetime64_any_dtype(cb_df[date_col]):
+                            try:
+                                cb_df[date_col] = pd.to_datetime(cb_df[date_col]).dt.strftime('%Y-%m-%d')
+                            except:
+                                pass
+                        
+                        # 筛选目标日期数据
+                        cb_df = cb_df[cb_df[date_col] == date_str]
+                        if not cb_df.empty:
+                            # 检查数据完整性
+                            if check_convertible_bond_completeness(cb_df):
+                                logger.info(f"{'测试模式' if test else '正常模式'}: 从AkShare成功获取 {len(cb_df)} 条可转债申购信息")
+                                # 确保列名标准化
+                                if '申购日期' not in cb_df.columns:
+                                    cb_df['申购日期'] = date_str
+                                # 重命名列以匹配股票格式
+                                cb_df = cb_df.rename(columns={
+                                    '债券代码': '股票代码',
+                                    '债券简称': '股票简称',
+                                    '转股价格': '发行价格'
+                                })
+                                # 添加类型标识
+                                cb_df['类型'] = '可转债'
+                                return cb_df[['股票代码', '股票简称', '发行价格', '申购上限', '申购日期', '类型']]
+                            else:
+                                logger.warning(f"{'测试模式' if test else '正常模式'}: AkShare返回的可转债数据不完整")
+            except Exception as e:
+                logger.error(f"{'测试模式' if test else '正常模式'}: AkShare获取可转债信息失败: {str(e)}", exc_info=True)
             
             # 尝试Baostock（备用数据源）
             try:
@@ -188,6 +245,11 @@ def get_new_stock_subscriptions(test=False):
                             data_list.append(rs.get_row_data())
                         df = pd.DataFrame(data_list, columns=rs.fields)
                         if not df.empty:
+                            # 关键修复：添加详细日志记录返回数据结构
+                            logger.info(f"Baostock返回新股数据，共 {len(df)} 条记录")
+                            logger.info(f"Baostock返回的列名: {df.columns.tolist()}")
+                            logger.info(f"数据预览:\n{df.head().to_markdown(index=False)}")
+                            
                             # 标准化日期格式
                             df['ipoDate'] = pd.to_datetime(df['ipoDate']).dt.strftime('%Y-%m-%d')
                             df = df[df['ipoDate'] == date_str]
@@ -195,7 +257,9 @@ def get_new_stock_subscriptions(test=False):
                                 # 检查数据完整性
                                 if check_new_stock_completeness(df):
                                     logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(df)} 条新股申购信息")
-                                    return df[['code', 'code_name', 'price', 'max_purchase', 'ipoDate']].rename(columns={
+                                    # 添加类型标识
+                                    df['类型'] = '股票'
+                                    return df[['code', 'code_name', 'price', 'max_purchase', 'ipoDate', '类型']].rename(columns={
                                         'code': '股票代码',
                                         'code_name': '股票简称',
                                         'price': '发行价格',
@@ -214,6 +278,11 @@ def get_new_stock_subscriptions(test=False):
                             data_list.append(rs.get_row_data())
                         df = pd.DataFrame(data_list, columns=rs.fields)
                         if not df.empty:
+                            # 关键修复：添加详细日志记录返回数据结构
+                            logger.info(f"Baostock返回新股数据，共 {len(df)} 条记录")
+                            logger.info(f"Baostock返回的列名: {df.columns.tolist()}")
+                            logger.info(f"数据预览:\n{df.head().to_markdown(index=False)}")
+                            
                             # 标准化日期格式
                             df['ipoDate'] = pd.to_datetime(df['ipoDate']).dt.strftime('%Y-%m-%d')
                             df = df[df['ipoDate'] == date_str]
@@ -221,7 +290,9 @@ def get_new_stock_subscriptions(test=False):
                                 # 检查数据完整性
                                 if check_new_stock_completeness(df):
                                     logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(df)} 条新股申购信息")
-                                    return df[['code', 'code_name', 'price', 'max_purchase', 'ipoDate']].rename(columns={
+                                    # 添加类型标识
+                                    df['类型'] = '股票'
+                                    return df[['code', 'code_name', 'price', 'max_purchase', 'ipoDate', '类型']].rename(columns={
                                         'code': '股票代码',
                                         'code_name': '股票简称',
                                         'price': '发行价格',
@@ -274,6 +345,11 @@ def get_new_stock_listings(test=False):
                 logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从AkShare获取新上市交易信息...")
                 df = ak.stock_xgsglb_em()
                 if not df.empty:
+                    # 关键修复：添加详细日志记录返回数据结构
+                    logger.info(f"AkShare返回新上市交易数据，共 {len(df)} 条记录")
+                    logger.info(f"AkShare返回的列名: {df.columns.tolist()}")
+                    logger.info(f"数据预览:\n{df.head().to_markdown(index=False)}")
+                    
                     # 动态匹配上市日期列
                     listing_date_col = next((col for col in df.columns 
                                            if any(kw in col.lower() for kw in ['上市日期', 'listing_date'])), None)
@@ -295,11 +371,54 @@ def get_new_stock_listings(test=False):
                                 # 确保列名标准化
                                 if '上市日期' not in df.columns:
                                     df['上市日期'] = date_str
-                                return df[['股票代码', '股票简称', '发行价格', '上市日期']]
+                                # 添加类型标识
+                                df['类型'] = '股票'
+                                return df[['股票代码', '股票简称', '发行价格', '上市日期', '类型']]
                             else:
                                 logger.warning(f"{'测试模式' if test else '正常模式'}: AkShare返回的新上市交易数据不完整，将尝试备用数据源...")
             except Exception as e:
                 logger.error(f"{'测试模式' if test else '正常模式'}: AkShare获取新上市交易信息失败: {str(e)}", exc_info=True)
+            
+            # 尝试获取可转债上市数据
+            try:
+                logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从AkShare获取可转债上市信息...")
+                cb_df = ak.bond_cb_list()
+                if not cb_df.empty:
+                    # 关键修复：添加详细日志记录返回数据结构
+                    logger.info(f"AkShare返回可转债上市数据，共 {len(cb_df)} 条记录")
+                    logger.info(f"AkShare可转债上市返回的列名: {cb_df.columns.tolist()}")
+                    logger.info(f"可转债上市数据预览:\n{cb_df.head().to_markdown(index=False)}")
+                    
+                    # 动态匹配上市日期列
+                    listing_date_col = next((col for col in cb_df.columns 
+                                           if any(kw in col.lower() for kw in ['上市日期', 'listing_date'])), None)
+                    
+                    if listing_date_col and listing_date_col in cb_df.columns:
+                        # 确保日期列是正确格式
+                        if not pd.api.types.is_datetime64_any_dtype(cb_df[listing_date_col]):
+                            try:
+                                cb_df[listing_date_col] = pd.to_datetime(cb_df[listing_date_col]).dt.strftime('%Y-%m-%d')
+                            except:
+                                pass
+                        
+                        # 筛选目标日期数据
+                        cb_df = cb_df[cb_df[listing_date_col] == date_str]
+                        if not cb_df.empty:
+                            # 检查数据完整性
+                            if '债券代码' in cb_df.columns and '债券简称' in cb_df.columns:
+                                logger.info(f"{'测试模式' if test else '正常模式'}: 从AkShare成功获取 {len(cb_df)} 条可转债上市信息")
+                                # 重命名列以匹配股票格式
+                                cb_df = cb_df.rename(columns={
+                                    '债券代码': '股票代码',
+                                    '债券简称': '股票简称'
+                                })
+                                # 添加类型标识
+                                cb_df['类型'] = '可转债'
+                                return cb_df[['股票代码', '股票简称', '上市日期', '类型']]
+                            else:
+                                logger.warning(f"{'测试模式' if test else '正常模式'}: AkShare返回的可转债上市数据不完整")
+            except Exception as e:
+                logger.error(f"{'测试模式' if test else '正常模式'}: AkShare获取可转债上市信息失败: {str(e)}", exc_info=True)
             
             # 尝试Baostock（备用数据源）
             try:
@@ -319,6 +438,11 @@ def get_new_stock_listings(test=False):
                             data_list.append(rs.get_row_data())
                         df = pd.DataFrame(data_list, columns=rs.fields)
                         if not df.empty:
+                            # 关键修复：添加详细日志记录返回数据结构
+                            logger.info(f"Baostock返回新上市交易数据，共 {len(df)} 条记录")
+                            logger.info(f"Baostock返回的列名: {df.columns.tolist()}")
+                            logger.info(f"数据预览:\n{df.head().to_markdown(index=False)}")
+                            
                             # 标准化日期格式
                             df['list_date'] = pd.to_datetime(df['list_date']).dt.strftime('%Y-%m-%d')
                             df = df[df['list_date'] == date_str]
@@ -326,7 +450,9 @@ def get_new_stock_listings(test=False):
                                 # 检查数据完整性
                                 if check_new_listing_completeness(df):
                                     logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(df)} 条新上市交易信息")
-                                    return df[['code', 'code_name', 'issue_price', 'list_date']].rename(columns={
+                                    # 添加类型标识
+                                    df['类型'] = '股票'
+                                    return df[['code', 'code_name', 'issue_price', 'list_date', '类型']].rename(columns={
                                         'code': '股票代码',
                                         'code_name': '股票简称',
                                         'issue_price': '发行价格',
@@ -344,6 +470,11 @@ def get_new_stock_listings(test=False):
                             data_list.append(rs.get_row_data())
                         df = pd.DataFrame(data_list, columns=rs.fields)
                         if not df.empty:
+                            # 关键修复：添加详细日志记录返回数据结构
+                            logger.info(f"Baostock返回新上市交易数据，共 {len(df)} 条记录")
+                            logger.info(f"Baostock返回的列名: {df.columns.tolist()}")
+                            logger.info(f"数据预览:\n{df.head().to_markdown(index=False)}")
+                            
                             # 标准化日期格式
                             df['list_date'] = pd.to_datetime(df['list_date']).dt.strftime('%Y-%m-%d')
                             df = df[df['list_date'] == date_str]
@@ -351,7 +482,9 @@ def get_new_stock_listings(test=False):
                                 # 检查数据完整性
                                 if check_new_listing_completeness(df):
                                     logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(df)} 条新上市交易信息")
-                                    return df[['code', 'code_name', 'issue_price', 'list_date']].rename(columns={
+                                    # 添加类型标识
+                                    df['类型'] = '股票'
+                                    return df[['code', 'code_name', 'issue_price', 'list_date', '类型']].rename(columns={
                                         'code': '股票代码',
                                         'code_name': '股票简称',
                                         'issue_price': '发行价格',
@@ -390,6 +523,7 @@ def get_all_etf_list():
         
         if not df.empty:
             logger.info(f"AkShare返回的列名: {df.columns.tolist()}")
+            logger.info(f"ETF列表数据预览:\n{df.head().to_markdown(index=False)}")
             
             # 动态匹配列名 - 增强容错能力
             code_col = next((col for col in df.columns 
@@ -429,6 +563,7 @@ def get_all_etf_list():
         
         if not df.empty:
             logger.info(f"AkShare备用接口返回的列名: {df.columns.tolist()}")
+            logger.info(f"ETF列表数据预览:\n{df.head().to_markdown(index=False)}")
             
             # 动态匹配列名 - 增强容错能力
             code_col = next((col for col in df.columns 
@@ -475,6 +610,7 @@ def get_all_etf_list():
             if not df.empty:
                 logger.info(f"Baostock返回 {len(df)} 条股票记录")
                 logger.info(f"Baostock返回的列名: {df.columns.tolist()}")
+                logger.info(f"ETF列表数据预览:\n{df.head().to_markdown(index=False)}")
                 
                 # 筛选ETF类型证券（通常以51或15开头）
                 etf_list = df[df['code'].str.startswith(('51', '58', '15', '16'))]
@@ -510,6 +646,7 @@ def get_all_etf_list():
             data = json.loads(response.text)
             if data:
                 logger.info(f"新浪财经返回 {len(data)} 条ETF记录")
+                logger.info(f"ETF列表数据预览:\n{pd.DataFrame(data).head().to_markdown(index=False)}")
                 
                 etf_list = pd.DataFrame(data)
                 etf_list['code'] = etf_list['symbol'].apply(
@@ -572,6 +709,7 @@ def get_etf_data(etf_code, data_type='daily'):
         if df is not None and not df.empty:
             logger.info(f"AkShare fund_etf_hist_em 返回 {len(df)} 条数据")
             logger.info(f"AkShare返回的列名: {df.columns.tolist()}")
+            logger.info(f"ETF数据预览:\n{df.head().to_markdown(index=False)}")
         else:
             logger.warning("AkShare fund_etf_hist_em 返回空数据")
         
@@ -585,6 +723,7 @@ def get_etf_data(etf_code, data_type='daily'):
             if df is not None and not df.empty:
                 logger.info(f"AkShare fund_etf_hist_sina 返回 {len(df)} 条数据")
                 logger.info(f"AkShare备用接口返回的列名: {df.columns.tolist()}")
+                logger.info(f"ETF数据预览:\n{df.head().to_markdown(index=False)}")
             else:
                 logger.warning("AkShare fund_etf_hist_sina 返回空数据")
         
@@ -689,6 +828,7 @@ def get_etf_data(etf_code, data_type='daily'):
         if not df.empty:
             logger.info(f"Baostock返回 {len(df)} 条数据")
             logger.info(f"Baostock返回的列名: {df.columns.tolist()}")
+            logger.info(f"ETF数据预览:\n{df.head().to_markdown(index=False)}")
             
             # 转换数据类型
             try:
