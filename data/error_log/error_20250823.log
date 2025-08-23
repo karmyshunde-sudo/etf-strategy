@@ -40,3 +40,23 @@ AttributeError: module 'akshare' has no attribute 'bond_cb_issue_em'
 2025-08-23 14:14:52,995 - data_fix - ERROR - AkShare版本过旧，不支持可转债数据接口
 2025-08-23 14:15:10,688 - data_fix - ERROR - AkShare版本过旧，不支持可转债数据接口
 2025-08-23 14:15:33,313 - data_fix - ERROR - AkShare版本过旧，不支持可转债数据接口
+2025-08-23 23:35:37,015 - data_fix - ERROR - 测试模式: AkShare获取可转债信息失败: name 'akshare_version' is not defined
+Traceback (most recent call last):
+  File "/home/runner/work/etf-strategy/etf-strategy/data_fix.py", line 199, in get_new_stock_subscriptions
+    logger.warning(f"AkShare版本 {akshare_version} 不支持 bond_cb_issue_em 接口")
+NameError: name 'akshare_version' is not defined
+2025-08-23 23:35:51,730 - data_fix - ERROR - 测试模式: AkShare获取可转债信息失败: name 'akshare_version' is not defined
+Traceback (most recent call last):
+  File "/home/runner/work/etf-strategy/etf-strategy/data_fix.py", line 199, in get_new_stock_subscriptions
+    logger.warning(f"AkShare版本 {akshare_version} 不支持 bond_cb_issue_em 接口")
+NameError: name 'akshare_version' is not defined
+2025-08-23 23:36:37,442 - data_fix - ERROR - 测试模式: AkShare获取可转债信息失败: name 'akshare_version' is not defined
+Traceback (most recent call last):
+  File "/home/runner/work/etf-strategy/etf-strategy/data_fix.py", line 199, in get_new_stock_subscriptions
+    logger.warning(f"AkShare版本 {akshare_version} 不支持 bond_cb_issue_em 接口")
+NameError: name 'akshare_version' is not defined
+2025-08-23 23:36:46,596 - data_fix - ERROR - 测试模式: AkShare获取可转债信息失败: name 'akshare_version' is not defined
+Traceback (most recent call last):
+  File "/home/runner/work/etf-strategy/etf-strategy/data_fix.py", line 199, in get_new_stock_subscriptions
+    logger.warning(f"AkShare版本 {akshare_version} 不支持 bond_cb_issue_em 接口")
+NameError: name 'akshare_version' is not defined
