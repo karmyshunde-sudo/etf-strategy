@@ -38,18 +38,19 @@ on:
           - 'test_execute'				#【T05】手动执行策略并推送结果
           - 'test_reset'					#【T06】手动重置所有仓位（测试用）
           - 'test_arbitrage'				#【T09】手动套利扫描
-          - 'run_new_stock_info'			#每日 9:35 新股信息推送
-          - 'push_strategy'				#计算策略信号并推送到企业微信
-          - 'update_stock_pool'			#每周五16:00北京时间更新ETF股票池（5只稳健仓 + 5只激进仓）
-          - 'crawl_daily'					#日线数据爬取任务
-          - 'crawl_intraday'				#盘中数据爬取任务
-          - 'cleanup'					#数据清理任务
-          - 'arbitrage-scan'				#定时套利扫描
+          - 'crawl_new_stock'			#【T10】手动爬取新股申购和新上市股票信息
+          - 'crawl_intraday'				#【T11】手动爬取当天ETF交易数据
+          - 'push_new_stock'				#【T12】手动推送新股申购和新上市股票信息
+          - 'arbitrage-scan'				#【T13】手动套利扫描
+          - 'push_strategy'				#【T14】手动推送策略信号
+          - 'crawl_daily'				#【T15】手动爬取日线数据
+          - 'cleanup'					#【T16】手动清理旧数据
+          - 'resume_crawl'				#【T17】手动断点续爬
 
 jobs:
-  # 9:31 AM：爬取当天新股申购、新上市股票信息
-  run-new-stock-info:
-    if: ${{ contains('31 1 * * 1-5', github.event.schedule) || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'run_new_stock_info') }}
+  # 通用测试任务处理程序 - 关键组件
+  run-test-tasks:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -72,6 +73,60 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install akshare baostock
+
+      - name: Debug info
+        run: |
+          echo "Event name: ${{ github.event_name }}"
+          echo "Input task: ${{ github.event.inputs.task }}"
+      
+      - name: Run test task
+        env:
+          TASK: ${{ github.event.inputs.task }}
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+        run: |
+          # 执行主程序
+          python main.py
+          
+          # 提交数据变更到仓库
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add data/
+          git commit -m "自动更新测试任务数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
+          git push origin main || echo "Failed to push changes"
+
+      - name: Verify execution
+        run: |
+          echo "Test task execution completed successfully!"
+
+  # 9:31 AM：爬取当天新股申购、新上市股票信息
+  crawl-new-stock:
+    if: ${{ 
+      (github.event_name == 'schedule' && contains(github.event.schedule, '31 1 * * 1-5'))
+    }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      pull-requests: write
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install akshare baostock
 
       - name: Debug info
         run: |
@@ -82,11 +137,8 @@ jobs:
       
       - name: Run strategy
         env:
-          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'run_new_stock_info' }}
+          TASK: 'crawl_new_stock'
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}
-          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
-          MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
         run: |
           # 执行主程序
           python main.py
@@ -95,7 +147,7 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add data/
-          git commit -m "自动更新新股信息数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
+          git commit -m "自动更新新股数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
           git push origin main || echo "Failed to push changes"
 
       - name: Verify execution
@@ -103,8 +155,10 @@ jobs:
           echo "New stock info execution completed successfully!"
 
   # 9:45 AM：推送新股申购和新上市股票信息
-  push-new-stock-info:
-    if: ${{ contains('45 1 * * 1-5', github.event.schedule) || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'run_new_stock_info') }}
+  push-new-stock:
+    if: ${{ 
+      (github.event_name == 'schedule' && contains(github.event.schedule, '45 1 * * 1-5'))
+    }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -127,6 +181,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install akshare baostock
 
       - name: Debug info
         run: |
@@ -136,11 +191,8 @@ jobs:
       
       - name: Run strategy
         env:
-          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'run_new_stock_info' }}
+          TASK: 'push_new_stock'
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}
-          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
-          MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
         run: |
           # 执行主程序
           python main.py
@@ -158,7 +210,9 @@ jobs:
 
   # 9:55 AM：爬取当天ETF交易数据
   crawl-intraday:
-    if: ${{ contains('55 1 * * 1-5', github.event.schedule) || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'crawl_intraday') }}
+    if: ${{ 
+      (github.event_name == 'schedule' && contains(github.event.schedule, '55 1 * * 1-5'))
+    }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -181,6 +235,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install akshare baostock
 
       - name: Debug info
         run: |
@@ -189,11 +244,8 @@ jobs:
       
       - name: Run strategy
         env:
-          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'crawl_intraday' }}
+          TASK: 'crawl_intraday'
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}
-          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
-          MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
         run: |
           # 执行主程序
           python main.py
@@ -202,7 +254,7 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add data/
-          git commit -m "自动爬取盘中数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
+          git commit -m "自动爬取ETF交易数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
           git push origin main || echo "Failed to push changes"
 
       - name: Verify execution
@@ -210,8 +262,10 @@ jobs:
           echo "Intraday crawl execution completed successfully!"
 
   # 13:00 PM：套利扫描、股票池策略计算与推送
-  push-strategy:
-    if: ${{ contains('0 5 * * 1-5', github.event.schedule) || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'push_strategy') }}
+  arbitrage-and-strategy:
+    if: ${{ 
+      (github.event_name == 'schedule' && contains(github.event.schedule, '0 5 * * 1-5'))
+    }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -234,6 +288,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install akshare baostock
 
       - name: Debug info
         run: |
@@ -241,13 +296,10 @@ jobs:
           echo "Event name: ${{ github.event_name }}"
           echo "Input task: ${{ github.event.inputs.task }}"
       
-      - name: Run strategy
+      - name: Run arbitrage scan
         env:
-          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'push_strategy' }}
+          TASK: 'arbitrage-scan'
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}
-          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
-          MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
         run: |
           # 执行主程序
           python main.py
@@ -256,50 +308,13 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add data/
-          git commit -m "自动更新策略数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
+          git commit -m "自动扫描套利机会 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
           git push origin main || echo "Failed to push changes"
-
-      - name: Verify execution
-        run: |
-          echo "Strategy push execution completed successfully!"
-
-  # 13:00 PM：套利扫描
-  arbitrage-scan:
-    if: ${{ contains('0 5 * * 1-5', github.event.schedule) || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'arbitrage-scan') }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      id-token: write
-      pull-requests: write
       
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
-      
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-          
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Debug info
-        run: |
-          echo "Manual trigger for arbitrage scan"
-      
-      - name: Run strategy
+      - name: Run strategy push
         env:
-          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'arbitrage-scan' }}
+          TASK: 'push_strategy'
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}
-          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
-          MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
         run: |
           # 执行主程序
           python main.py
@@ -308,16 +323,18 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add data/
-          git commit -m "自动更新套利数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
+          git commit -m "自动推送策略 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
           git push origin main || echo "Failed to push changes"
 
       - name: Verify execution
         run: |
-          echo "Arbitrage scan execution completed successfully!"
+          echo "Arbitrage scan and strategy push execution completed successfully!"
 
   # 16:00 PM：爬取日线数据
   crawl-daily:
-    if: ${{ contains('0 8 * * 1-5', github.event.schedule) || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'crawl_daily') }}
+    if: ${{ 
+      (github.event_name == 'schedule' && contains(github.event.schedule, '0 8 * * 1-5'))
+    }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -340,6 +357,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install akshare baostock
 
       - name: Debug info
         run: |
@@ -348,11 +366,8 @@ jobs:
       
       - name: Run strategy
         env:
-          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'crawl_daily' }}
+          TASK: 'crawl_daily'
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}
-          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
-          MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
         run: |
           # 执行主程序
           python main.py
@@ -370,7 +385,9 @@ jobs:
 
   # 00:00 AM：清理旧数据
   cleanup:
-    if: ${{ contains('0 16 * * *', github.event.schedule) || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'cleanup') }}
+    if: ${{ 
+      (github.event_name == 'schedule' && contains(github.event.schedule, '0 16 * * *'))
+    }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -393,6 +410,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install akshare baostock
 
       - name: Debug info
         run: |
@@ -400,11 +418,8 @@ jobs:
       
       - name: Run strategy
         env:
-          TASK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task || 'cleanup' }}
+          TASK: 'cleanup'
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-          TRI_HTM_TOKEN: ${{ secrets.TRI_HTM_TOKEN }}
-          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
-          MESSAGE_FOOTER: ${{ secrets.MESSAGE_FOOTER }}
         run: |
           # 执行主程序
           python main.py
@@ -422,7 +437,9 @@ jobs:
 
   # 断点续爬任务（每2小时执行一次，仅在非交易时间）
   resume-crawl:
-    if: ${{ contains('0 */2 * * *', github.event.schedule) || (github.event_name == 'workflow_dispatch' && github.event.inputs.task == 'resume_crawl') }}
+    if: ${{ 
+      (github.event_name == 'schedule' && contains(github.event.schedule, '0 */2 * * *'))
+    }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -430,60 +447,3 @@ jobs:
       pull-requests: write
       
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
-      
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-          
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Check if non-trading hours
-        id: check_hours
-        run: |
-          echo "Current UTC time: $(date -u '+%Y-%m-%d %H:%M:%S')"
-          echo "Current UTC hour: $(date -u '+%H')"
-          utc_hour=$(date -u '+%H')
-          beijing_hour=$(( (10#$utc_hour + 8) % 24 ))
-          echo "Current Beijing time: $(date '+%Y-%m-%d %H:%M:%S')"
-          echo "Beijing hour: $beijing_hour"
-          
-          # 判断是否在非交易时间 (18:00-09:00)
-          if (( beijing_hour >= 18 || beijing_hour < 9 )); then
-            echo "IN_NON_TRADING_HOURS=true"
-            echo "IN_NON_TRADING_HOURS=true" >> $GITHUB_ENV
-            echo "non_trading_hours=true" >> $GITHUB_OUTPUT
-          else
-            echo "IN_NON_TRADING_HOURS=false"
-            echo "IN_NON_TRADING_HOURS=false" >> $GITHUB_ENV
-            echo "non_trading_hours=false" >> $GITHUB_OUTPUT
-          fi
-      
-      - name: Run resume crawl (only in non-trading hours)
-        if: steps.check_hours.outputs.non_trading_hours == 'true'
-        env:
-          TASK: resume_crawl
-          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-        run: |
-          python main.py
-          
-          # 提交数据变更到仓库
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add data/
-          git commit -m "自动续爬ETF数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
-          git push origin main || echo "Failed to push changes"
-      
-      - name: Skip resume crawl (during trading hours)
-        if: steps.check_hours.outputs.non_trading_hours != 'true'
-        run: |
-          echo "当前为交易时间 (北京时间 09:00-18:00)，跳过断点续爬任务"
-          echo "Beijing time: $(date '+%Y-%m-%d %H:%M:%S')"
