@@ -6,3 +6,7 @@
 2025-08-23 06:01:19,114 - data_fix - ERROR - 正常模式: AkShare获取新股信息失败: stock_xgsglb_em() got an unexpected keyword argument 'headers'
 2025-08-23 06:01:20,295 - data_fix - ERROR - 正常模式: Baostock获取新股信息失败: module 'baostock' has no attribute 'query_stock_new'
 2025-08-23 08:28:28,635 - data_fix - ERROR - 测试模式: Baostock获取新上市交易信息失败: 'list_date'
+2025-08-23 09:05:05,935 - data_fix - ERROR - Baostock获取ETF列表失败: module 'baostock' has no attribute 'query_etf_basic'
+2025-08-23 09:05:05,935 - data_fix - ERROR - 【数据错误】无法从所有数据源获取ETF列表
+2025-08-23 09:05:07,113 - data_fix - ERROR - 【数据错误】ETF列表获取失败
+2025-08-23 09:05:08,287 - __main__ - ERROR - 【数据错误】【数据错误】ETF列表获取失败
