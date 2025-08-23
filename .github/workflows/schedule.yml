@@ -154,9 +154,7 @@ jobs:
 
   # 9:45 AM：推送新股申购和新上市股票信息
   push_new_stock:
-    if: ${{ 
-      (github.event_name == 'schedule' && contains(github.event.schedule, '45 1 * * 1-5'))
-    }}
+    if: ${{ (github.event_name == 'schedule' && contains(github.event.schedule, '45 1 * * 1-5')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
