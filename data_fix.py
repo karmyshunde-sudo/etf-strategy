@@ -15,17 +15,17 @@ from config import Config
 from logger import get_logger
 from retrying import retry
 
-# 确保所有数据目录存在（关键修复）
-Config.init_directories()
-
-logger = get_logger(__name__)
-
+# 获取AkShare版本
 try:
     akshare_version = ak.__version__
 except AttributeError:
     akshare_version = "unknown"
 
-logger.info(f"使用AkShare版本: {akshare_version}")
+# 确保所有数据目录存在（关键修复）
+Config.init_directories()
+
+logger = get_logger(__name__)
+logger.info(f"系统启动 - 使用AkShare版本: {akshare_version}")
 
 def get_beijing_time():
     """获取北京时间"""
@@ -152,13 +152,15 @@ def get_new_stock_subscriptions(test=False):
             # 尝试AkShare（主数据源）
             try:
                 logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从AkShare获取新股申购信息...")
+                logger.info(f"AkShare接口: ak.stock_xgsglb_em()")
+                
                 df = akshare_retry(ak.stock_xgsglb_em)
                 
                 if not df.empty:
-                    # 关键修复：添加详细日志记录返回数据结构
-                    logger.info(f"AkShare返回新股数据，共 {len(df)} 条记录")
-                    logger.info(f"AkShare返回的列名: {df.columns.tolist()}")
-                    logger.info(f"数据预览:\n{df.head().to_markdown(index=False)}")
+                    # 仅记录列名信息，不显示数据内容
+                    logger.info(f"AkShare返回新股数据列数: {len(df.columns)}")
+                    logger.info(f"AkShare返回新股数据记录数: {len(df)}")
+                    logger.info(f"AkShare返回新股数据列名: {df.columns.tolist()}")
                     
                     # 动态匹配日期列
                     date_col = next((col for col in df.columns 
@@ -192,12 +194,37 @@ def get_new_stock_subscriptions(test=False):
             # 尝试获取可转债数据
             try:
                 logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从AkShare获取可转债申购信息...")
-                cb_df = ak.bond_cb_issue_em()
+                logger.info(f"尝试AkShare接口: ak.bond_cb_issue_em()")
+                
+                # 检查AkShare版本是否支持该接口
+                if hasattr(ak, 'bond_cb_issue_em'):
+                    cb_df = ak.bond_cb_issue_em()
+                    logger.info("成功调用ak.bond_cb_issue_em()接口")
+                else:
+                    logger.warning(f"AkShare版本 {akshare_version} 不支持 bond_cb_issue_em 接口")
+                    # 根据版本提供替代方案
+                    if akshare_version.startswith('1.'):
+                        logger.info("尝试替代接口: ak.bond_cb_em()")
+                        if hasattr(ak, 'bond_cb_em'):
+                            cb_df = ak.bond_cb_em()
+                            logger.info("成功调用ak.bond_cb_em()接口")
+                        else:
+                            logger.error("AkShare版本过旧，不支持可转债数据接口")
+                            continue
+                    elif akshare_version.startswith('0.'):
+                        logger.info("尝试替代接口: ak.bond_cb_all()")
+                        if hasattr(ak, 'bond_cb_all'):
+                            cb_df = ak.bond_cb_all()
+                            logger.info("成功调用ak.bond_cb_all()接口")
+                        else:
+                            logger.error("AkShare版本过旧，不支持可转债数据接口")
+                            continue
+                
                 if not cb_df.empty:
-                    # 关键修复：添加详细日志记录返回数据结构
-                    logger.info(f"AkShare返回可转债数据，共 {len(cb_df)} 条记录")
-                    logger.info(f"AkShare可转债返回的列名: {cb_df.columns.tolist()}")
-                    logger.info(f"可转债数据预览:\n{cb_df.head().to_markdown(index=False)}")
+                    # 仅记录列名信息，不显示数据内容
+                    logger.info(f"AkShare返回可转债数据列数: {len(cb_df.columns)}")
+                    logger.info(f"AkShare返回可转债数据记录数: {len(cb_df)}")
+                    logger.info(f"AkShare返回可转债数据列名: {cb_df.columns.tolist()}")
                     
                     # 动态匹配日期列
                     date_col = next((col for col in cb_df.columns 
@@ -237,6 +264,7 @@ def get_new_stock_subscriptions(test=False):
             # 尝试Baostock（备用数据源）
             try:
                 logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从Baostock获取新股申购信息...")
+                logger.info("Baostock接口: bs.query_stock_new()")
                 lg = bs.login()
                 if lg.error_code != '0':
                     logger.warning(f"Baostock登录失败: {lg.error_msg}")
@@ -252,10 +280,10 @@ def get_new_stock_subscriptions(test=False):
                             data_list.append(rs.get_row_data())
                         df = pd.DataFrame(data_list, columns=rs.fields)
                         if not df.empty:
-                            # 关键修复：添加详细日志记录返回数据结构
-                            logger.info(f"Baostock返回新股数据，共 {len(df)} 条记录")
-                            logger.info(f"Baostock返回的列名: {df.columns.tolist()}")
-                            logger.info(f"数据预览:\n{df.head().to_markdown(index=False)}")
+                            # 仅记录列名信息，不显示数据内容
+                            logger.info(f"Baostock返回新股数据列数: {len(df.columns)}")
+                            logger.info(f"Baostock返回新股数据记录数: {len(df)}")
+                            logger.info(f"Baostock返回新股数据列名: {df.columns.tolist()}")
                             
                             # 标准化日期格式
                             df['ipoDate'] = pd.to_datetime(df['ipoDate']).dt.strftime('%Y-%m-%d')
@@ -278,6 +306,7 @@ def get_new_stock_subscriptions(test=False):
                 
                 try:
                     # 尝试方法2: query_stock_basic
+                    logger.info("Baostock备用接口: bs.query_stock_basic()")
                     rs = bs.query_stock_basic()
                     if rs.error_code == '0':
                         data_list = []
@@ -285,10 +314,10 @@ def get_new_stock_subscriptions(test=False):
                             data_list.append(rs.get_row_data())
                         df = pd.DataFrame(data_list, columns=rs.fields)
                         if not df.empty:
-                            # 关键修复：添加详细日志记录返回数据结构
-                            logger.info(f"Baostock返回新股数据，共 {len(df)} 条记录")
-                            logger.info(f"Baostock返回的列名: {df.columns.tolist()}")
-                            logger.info(f"数据预览:\n{df.head().to_markdown(index=False)}")
+                            # 仅记录列名信息，不显示数据内容
+                            logger.info(f"Baostock返回新股数据列数: {len(df.columns)}")
+                            logger.info(f"Baostock返回新股数据记录数: {len(df)}")
+                            logger.info(f"Baostock返回新股数据列名: {df.columns.tolist()}")
                             
                             # 标准化日期格式
                             df['ipoDate'] = pd.to_datetime(df['ipoDate']).dt.strftime('%Y-%m-%d')
@@ -350,12 +379,13 @@ def get_new_stock_listings(test=False):
             # 尝试AkShare（主数据源）
             try:
                 logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从AkShare获取新上市交易信息...")
+                logger.info(f"AkShare接口: ak.stock_xgsglb_em()")
                 df = ak.stock_xgsglb_em()
                 if not df.empty:
-                    # 关键修复：添加详细日志记录返回数据结构
-                    logger.info(f"AkShare返回新上市交易数据，共 {len(df)} 条记录")
-                    logger.info(f"AkShare返回的列名: {df.columns.tolist()}")
-                    logger.info(f"数据预览:\n{df.head().to_markdown(index=False)}")
+                    # 仅记录列名信息，不显示数据内容
+                    logger.info(f"AkShare返回新上市交易数据列数: {len(df.columns)}")
+                    logger.info(f"AkShare返回新上市交易数据记录数: {len(df)}")
+                    logger.info(f"AkShare返回新上市交易数据列名: {df.columns.tolist()}")
                     
                     # 动态匹配上市日期列
                     listing_date_col = next((col for col in df.columns 
@@ -389,12 +419,37 @@ def get_new_stock_listings(test=False):
             # 尝试获取可转债上市数据
             try:
                 logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从AkShare获取可转债上市信息...")
-                cb_df = ak.bond_cb_list()
+                logger.info(f"尝试AkShare接口: ak.bond_cb_list()")
+                
+                # 检查AkShare版本是否支持该接口
+                if hasattr(ak, 'bond_cb_list'):
+                    cb_df = ak.bond_cb_list()
+                    logger.info("成功调用ak.bond_cb_list()接口")
+                else:
+                    logger.warning(f"AkShare版本 {akshare_version} 不支持 bond_cb_list 接口")
+                    # 根据版本提供替代方案
+                    if akshare_version.startswith('1.'):
+                        logger.info("尝试替代接口: ak.bond_cb_em()")
+                        if hasattr(ak, 'bond_cb_em'):
+                            cb_df = ak.bond_cb_em()
+                            logger.info("成功调用ak.bond_cb_em()接口")
+                        else:
+                            logger.error("AkShare版本过旧，不支持可转债数据接口")
+                            continue
+                    elif akshare_version.startswith('0.'):
+                        logger.info("尝试替代接口: ak.bond_cb_all()")
+                        if hasattr(ak, 'bond_cb_all'):
+                            cb_df = ak.bond_cb_all()
+                            logger.info("成功调用ak.bond_cb_all()接口")
+                        else:
+                            logger.error("AkShare版本过旧，不支持可转债数据接口")
+                            continue
+                
                 if not cb_df.empty:
-                    # 关键修复：添加详细日志记录返回数据结构
-                    logger.info(f"AkShare返回可转债上市数据，共 {len(cb_df)} 条记录")
-                    logger.info(f"AkShare可转债上市返回的列名: {cb_df.columns.tolist()}")
-                    logger.info(f"可转债上市数据预览:\n{cb_df.head().to_markdown(index=False)}")
+                    # 仅记录列名信息，不显示数据内容
+                    logger.info(f"AkShare返回可转债上市数据列数: {len(cb_df.columns)}")
+                    logger.info(f"AkShare返回可转债上市数据记录数: {len(cb_df)}")
+                    logger.info(f"AkShare返回可转债上市数据列名: {cb_df.columns.tolist()}")
                     
                     # 动态匹配上市日期列
                     listing_date_col = next((col for col in cb_df.columns 
@@ -430,6 +485,7 @@ def get_new_stock_listings(test=False):
             # 尝试Baostock（备用数据源）
             try:
                 logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从Baostock获取新上市交易信息...")
+                logger.info("Baostock接口: bs.query_stock_basic()")
                 lg = bs.login()
                 if lg.error_code != '0':
                     logger.warning(f"Baostock登录失败: {lg.error_msg}")
@@ -445,10 +501,10 @@ def get_new_stock_listings(test=False):
                             data_list.append(rs.get_row_data())
                         df = pd.DataFrame(data_list, columns=rs.fields)
                         if not df.empty:
-                            # 关键修复：添加详细日志记录返回数据结构
-                            logger.info(f"Baostock返回新上市交易数据，共 {len(df)} 条记录")
-                            logger.info(f"Baostock返回的列名: {df.columns.tolist()}")
-                            logger.info(f"数据预览:\n{df.head().to_markdown(index=False)}")
+                            # 仅记录列名信息，不显示数据内容
+                            logger.info(f"Baostock返回新上市交易数据列数: {len(df.columns)}")
+                            logger.info(f"Baostock返回新上市交易数据记录数: {len(df)}")
+                            logger.info(f"Baostock返回新上市交易数据列名: {df.columns.tolist()}")
                             
                             # 标准化日期格式
                             df['list_date'] = pd.to_datetime(df['list_date']).dt.strftime('%Y-%m-%d')
@@ -470,6 +526,7 @@ def get_new_stock_listings(test=False):
                 
                 try:
                     # 尝试方法2: query_all_stock
+                    logger.info("Baostock备用接口: bs.query_all_stock()")
                     rs = bs.query_all_stock()
                     if rs.error_code == '0':
                         data_list = []
@@ -477,10 +534,10 @@ def get_new_stock_listings(test=False):
                             data_list.append(rs.get_row_data())
                         df = pd.DataFrame(data_list, columns=rs.fields)
                         if not df.empty:
-                            # 关键修复：添加详细日志记录返回数据结构
-                            logger.info(f"Baostock返回新上市交易数据，共 {len(df)} 条记录")
-                            logger.info(f"Baostock返回的列名: {df.columns.tolist()}")
-                            logger.info(f"数据预览:\n{df.head().to_markdown(index=False)}")
+                            # 仅记录列名信息，不显示数据内容
+                            logger.info(f"Baostock返回新上市交易数据列数: {len(df.columns)}")
+                            logger.info(f"Baostock返回新上市交易数据记录数: {len(df)}")
+                            logger.info(f"Baostock返回新上市交易数据列名: {df.columns.tolist()}")
                             
                             # 标准化日期格式
                             df['list_date'] = pd.to_datetime(df['list_date']).dt.strftime('%Y-%m-%d')
@@ -524,14 +581,14 @@ def get_all_etf_list():
     # 尝试AkShare主接口（实时ETF列表）
     try:
         logger.info("尝试从AkShare获取ETF列表...")
+        logger.info("AkShare接口: ak.fund_etf_spot_em()")
         # 使用 fund_etf_spot_em 获取实时ETF列表
         df = ak.fund_etf_spot_em()
-        logger.info(f"AkShare返回ETF列表数据，共 {len(df)} 条记录")
+        logger.info(f"AkShare返回ETF列表数据列数: {len(df.columns)}")
+        logger.info(f"AkShare返回ETF列表数据记录数: {len(df)}")
+        logger.info(f"AkShare返回ETF列表数据列名: {df.columns.tolist()}")
         
         if not df.empty:
-            logger.info(f"AkShare返回的列名: {df.columns.tolist()}")
-            logger.info(f"ETF列表数据预览:\n{df.head().to_markdown(index=False)}")
-            
             # 动态匹配列名 - 增强容错能力
             code_col = next((col for col in df.columns 
                            if any(kw in col.lower() for kw in ['代码', 'symbol', 'code'])), None)
@@ -565,13 +622,13 @@ def get_all_etf_list():
     # 尝试AkShare备用接口（历史ETF数据）
     try:
         logger.info("尝试从AkShare备用接口获取ETF列表...")
+        logger.info("AkShare接口: ak.fund_etf_hist_sina(symbol='etf')")
         df = ak.fund_etf_hist_sina(symbol="etf")
-        logger.info(f"AkShare备用接口返回 {len(df)} 条记录")
+        logger.info(f"AkShare备用接口返回ETF列表数据列数: {len(df.columns)}")
+        logger.info(f"AkShare备用接口返回ETF列表数据记录数: {len(df)}")
+        logger.info(f"AkShare备用接口返回ETF列表数据列名: {df.columns.tolist()}")
         
         if not df.empty:
-            logger.info(f"AkShare备用接口返回的列名: {df.columns.tolist()}")
-            logger.info(f"ETF列表数据预览:\n{df.head().to_markdown(index=False)}")
-            
             # 动态匹配列名 - 增强容错能力
             code_col = next((col for col in df.columns 
                            if any(kw in col.lower() for kw in ['基金代码', '代码', 'symbol'])), None)
@@ -602,6 +659,7 @@ def get_all_etf_list():
     # 尝试Baostock（使用兼容性更强的接口）
     try:
         logger.info("尝试从Baostock获取ETF列表...")
+        logger.info("Baostock接口: bs.query_all_stock()")
         lg = bs.login()
         if lg.error_code != '0':
             logger.warning(f"Baostock登录失败: {lg.error_msg}")
@@ -615,9 +673,9 @@ def get_all_etf_list():
                 data_list.append(rs.get_row_data())
             df = pd.DataFrame(data_list, columns=rs.fields)
             if not df.empty:
-                logger.info(f"Baostock返回 {len(df)} 条股票记录")
-                logger.info(f"Baostock返回的列名: {df.columns.tolist()}")
-                logger.info(f"ETF列表数据预览:\n{df.head().to_markdown(index=False)}")
+                logger.info(f"Baostock返回ETF列表数据列数: {len(df.columns)}")
+                logger.info(f"Baostock返回ETF列表数据记录数: {len(df)}")
+                logger.info(f"Baostock返回ETF列表数据列名: {df.columns.tolist()}")
                 
                 # 筛选ETF类型证券（通常以51或15开头）
                 etf_list = df[df['code'].str.startswith(('51', '58', '15', '16'))]
@@ -647,13 +705,18 @@ def get_all_etf_list():
     # 尝试新浪财经备用接口
     try:
         logger.info("尝试从新浪财经获取ETF列表...")
+        logger.info("新浪财经接口: http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getETFList")
         url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getETFList"
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
             data = json.loads(response.text)
             if data:
-                logger.info(f"新浪财经返回 {len(data)} 条ETF记录")
-                logger.info(f"ETF列表数据预览:\n{pd.DataFrame(data).head().to_markdown(index=False)}")
+                logger.info(f"新浪财经返回ETF列表数据记录数: {len(data)}")
+                # 假设返回的数据有symbol和name字段
+                if data and 'symbol' in data[0] and 'name' in data[0]:
+                    logger.info("新浪财经返回ETF列表数据包含必要字段")
+                else:
+                    logger.warning("新浪财经返回ETF列表数据缺少必要字段")
                 
                 etf_list = pd.DataFrame(data)
                 etf_list['code'] = etf_list['symbol'].apply(
@@ -710,13 +773,14 @@ def get_etf_data(etf_code, data_type='daily'):
         
         # 使用最新确认可用的ETF历史数据接口
         logger.info(f"尝试使用fund_etf_hist_em接口获取{etf_code}数据...")
+        logger.info(f"AkShare接口: ak.fund_etf_hist_em(symbol='{pure_code}')")
         df = akshare_retry(ak.fund_etf_hist_em, symbol=pure_code)
         
         # 添加关键日志 - 检查AkShare返回
         if df is not None and not df.empty:
-            logger.info(f"AkShare fund_etf_hist_em 返回 {len(df)} 条数据")
-            logger.info(f"AkShare返回的列名: {df.columns.tolist()}")
-            logger.info(f"ETF数据预览:\n{df.head().to_markdown(index=False)}")
+            logger.info(f"AkShare返回ETF数据列数: {len(df.columns)}")
+            logger.info(f"AkShare返回ETF数据记录数: {len(df)}")
+            logger.info(f"AkShare返回ETF数据列名: {df.columns.tolist()}")
         else:
             logger.warning("AkShare fund_etf_hist_em 返回空数据")
         
@@ -724,13 +788,14 @@ def get_etf_data(etf_code, data_type='daily'):
             logger.warning(f"AkShare fund_etf_hist_em返回空数据 {etf_code}")
             # 尝试备用接口
             logger.info(f"尝试使用fund_etf_hist_sina接口获取{etf_code}数据...")
+            logger.info(f"AkShare接口: ak.fund_etf_hist_sina(symbol='{pure_code}')")
             df = akshare_retry(ak.fund_etf_hist_sina, symbol=pure_code)
             
             # 添加关键日志 - 检查备用接口返回
             if df is not None and not df.empty:
-                logger.info(f"AkShare fund_etf_hist_sina 返回 {len(df)} 条数据")
-                logger.info(f"AkShare备用接口返回的列名: {df.columns.tolist()}")
-                logger.info(f"ETF数据预览:\n{df.head().to_markdown(index=False)}")
+                logger.info(f"AkShare返回ETF数据列数: {len(df.columns)}")
+                logger.info(f"AkShare返回ETF数据记录数: {len(df)}")
+                logger.info(f"AkShare返回ETF数据列名: {df.columns.tolist()}")
             else:
                 logger.warning("AkShare fund_etf_hist_sina 返回空数据")
         
@@ -801,6 +866,7 @@ def get_etf_data(etf_code, data_type='daily'):
     # 尝试Baostock（备用数据源）
     try:
         logger.info(f"尝试从Baostock获取{etf_code}数据...")
+        logger.info(f"Baostock接口: bs.query_history_k_data_plus()")
         lg = bs.login()
         if lg.error_code != '0':
             logger.warning(f"Baostock登录失败: {lg.error_msg}")
@@ -833,9 +899,9 @@ def get_etf_data(etf_code, data_type='daily'):
         bs.logout()  # 使用后登出
         
         if not df.empty:
-            logger.info(f"Baostock返回 {len(df)} 条数据")
-            logger.info(f"Baostock返回的列名: {df.columns.tolist()}")
-            logger.info(f"ETF数据预览:\n{df.head().to_markdown(index=False)}")
+            logger.info(f"Baostock返回ETF数据列数: {len(df.columns)}")
+            logger.info(f"Baostock返回ETF数据记录数: {len(df)}")
+            logger.info(f"Baostock返回ETF数据列名: {df.columns.tolist()}")
             
             # 转换数据类型
             try:
@@ -970,7 +1036,7 @@ def load_from_cache(etf_code, data_type='daily', days=30):
         
     try:
         df = pd.read_csv(cache_path)
-        logger.info(f"成功加载缓存文件: {cache_path}，共 {len(df)} 条记录")
+        logger.info(f"成功加载缓存文件: {cache_path}")
         
         # 确保日期列存在
         if 'date' not in df.columns:
