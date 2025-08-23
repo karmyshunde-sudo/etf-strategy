@@ -1,4 +1,4 @@
-"""2025-08-20 Ver1.0 主入口文件
+"""2025-08-20 Ver3.0 主入口文件
 所有说明查看【notes.md】"""
 
 import os
@@ -21,7 +21,8 @@ from data_fix import (
                      get_new_stock_subscriptions, get_new_stock_listings,
                      get_etf_data, crawl_etf_data, read_new_stock_pushed_flag, 
                      mark_new_stock_info_pushed, read_listing_pushed_flag, 
-                     mark_listing_info_pushed, check_data_integrity, send_wecom_message)
+                     mark_listing_info_pushed, check_data_integrity, send_wecom_message,
+                     get_etf_iopv_data, get_market_sentiment)
 
 # 确保所有数据目录存在
 Config.init_directories()
@@ -74,7 +75,6 @@ def calculate_ETF_score(etf_code):
         # 4. 溢价率评分 (需要IOPV数据)
         try:
             # 尝试获取IOPV数据
-            from data_fix import get_etf_iopv_data
             iopv_data = get_etf_iopv_data(etf_code)
             if iopv_data is not None and not iopv_data.empty:
                 latest_iopv = iopv_data['iopv'].iloc[-1]
@@ -94,7 +94,6 @@ def calculate_ETF_score(etf_code):
         # 5. 情绪指标评分 (基于市场情绪)
         try:
             # 获取市场情绪数据
-            from data_fix import get_market_sentiment
             sentiment = get_market_sentiment()
             if sentiment is not None:
                 # 根据市场情绪调整评分
@@ -163,11 +162,13 @@ def generate_stock_pool():
         scored_etfs = []
         for _, etf in etf_list.iterrows():
             try:
-                score = calculate_ETF_score(etf['code'])
+                # 确保ETF代码是标准化格式
+                etf_code = etf['code']
+                score = calculate_ETF_score(etf_code)
                 if score:
                     scored_etfs.append(score)
             except Exception as e:
-                error_msg = f"【系统错误】计算{etf['code']}评分失败: {str(e)}"
+                error_msg = f"【系统错误】计算{etf.get('code', '未知')}评分失败: {str(e)}"
                 logger.error(error_msg)
                 send_wecom_message(error_msg)
                 continue
@@ -228,12 +229,12 @@ def generate_stock_pool():
         message = "【ETF股票池】\n"
         message += "【稳健仓】\n"
         for _, etf in selected_stable.iterrows():
-            message += f"• {etf['etf_code']} - {etf['name']} (评分: {etf['total_score']:.2f})\n"
+            message += f"• {etf['etf_code']} - {etf.get('name', etf.get('etf_name', '未知'))} (评分: {etf['total_score']:.2f})\n"
             message += f"  流动性: {etf['liquidity_score']:.1f} | 风险: {etf['risk_score']:.1f} | 收益: {etf['return_score']:.1f}\n"
         
         message += "\n【激进仓】\n"
         for _, etf in selected_aggressive.iterrows():
-            message += f"• {etf['etf_code']} - {etf['name']} (评分: {etf['total_score']:.2f})\n"
+            message += f"• {etf['etf_code']} - {etf.get('name', etf.get('etf_name', '未知'))} (评分: {etf['total_score']:.2f})\n"
             message += f"  流动性: {etf['liquidity_score']:.1f} | 风险: {etf['risk_score']:.1f} | 收益: {etf['return_score']:.1f}\n"
         
         return message
@@ -277,9 +278,11 @@ def push_new_stock_info(test=False):
     返回:
         bool: 是否成功"""
     # 检查是否已经推送过
-    if not test and read_new_stock_pushed_flag(get_beijing_time().date())[1]:
-        logger.info("今天已经推送过新股信息，跳过")
-        return True
+    if not test:
+        flag_path, is_pushed = read_new_stock_pushed_flag(get_beijing_time().date())
+        if is_pushed:
+            logger.info("今天已经推送过新股信息，跳过")
+            return True
     
     new_stocks = get_new_stock_subscriptions(test=test)
     if new_stocks is None or new_stocks.empty:
@@ -305,9 +308,11 @@ def push_listing_info(test=False):
     返回:
         bool: 是否成功"""
     # 检查是否已经推送过
-    if not test and read_listing_pushed_flag(get_beijing_time().date())[1]:
-        logger.info("今天已经推送过新上市交易信息，跳过")
-        return True
+    if not test:
+        flag_path, is_pushed = read_listing_pushed_flag(get_beijing_time().date())
+        if is_pushed:
+            logger.info("今天已经推送过新上市交易信息，跳过")
+            return True
     
     new_listings = get_new_stock_listings(test=test)
     if new_listings is None or new_listings.empty:
@@ -432,7 +437,10 @@ def push_strategy_results(test=False):
     if not stable_etfs.empty:
         logger.info(f"开始推送稳健仓策略（{len(stable_etfs)}只ETF）")
         for _, etf in stable_etfs.iterrows():
-            signal = calculate_strategy(etf['code'], etf['name'], 'stable')
+            # 确保ETF代码是标准化格式
+            etf_code = etf['etf_code']
+            etf_name = etf.get('name', etf.get('etf_name', '未知'))
+            signal = calculate_strategy(etf_code, etf_name, 'stable')
             
             if signal is None:
                 continue
@@ -455,7 +463,10 @@ def push_strategy_results(test=False):
     if not aggressive_etfs.empty:
         logger.info(f"开始推送激进仓策略（{len(aggressive_etfs)}只ETF）")
         for _, etf in aggressive_etfs.iterrows():
-            signal = calculate_strategy(etf['code'], etf['name'], 'aggressive')
+            # 确保ETF代码是标准化格式
+            etf_code = etf['etf_code']
+            etf_name = etf.get('name', etf.get('etf_name', '未知'))
+            signal = calculate_strategy(etf_code, etf_name, 'aggressive')
             
             if signal is None:
                 continue
@@ -552,10 +563,13 @@ def get_current_stock_pool():
         df = pd.read_csv(filepath)
         
         # 重命名列以匹配策略函数期望
-        df = df.rename(columns={
-            'etf_code': 'code',
-            'etf_name': 'name'
-        })
+        # 检查列是否存在，如果不存在则尝试其他可能的列名
+        if 'code' not in df.columns and 'etf_code' in df.columns:
+            df = df.rename(columns={'etf_code': 'code'})
+        if 'name' not in df.columns and 'etf_name' in df.columns:
+            df = df.rename(columns={'etf_name': 'name'})
+        if 'name' not in df.columns and '基金简称' in df.columns:
+            df = df.rename(columns={'基金简称': 'name'})
         
         return df
     except Exception as e:
@@ -587,7 +601,7 @@ def check_arbitrage_opportunity():
         opportunities = []
         for _, etf in etf_list.iterrows():
             etf_code = etf['code']
-            etf_name = etf['name']
+            etf_name = etf.get('name', '未知')
             
             try:
                 # 获取ETF数据
@@ -596,19 +610,13 @@ def check_arbitrage_opportunity():
                     continue
                 
                 # 获取IOPV数据
-                try:
-                    from data_fix import get_etf_iopv_data
-                    iopv_data = get_etf_iopv_data(etf_code)
-                    if iopv_data is not None and not iopv_data.empty:
-                        latest_iopv = iopv_data['iopv'].iloc[-1]
-                    else:
-                        continue
-                except Exception as e:
-                    logger.debug(f"获取{etf_code} IOPV数据失败: {str(e)}")
+                iopv_data = get_etf_iopv_data(etf_code)
+                if iopv_data is None or iopv_data.empty:
                     continue
                 
                 # 检查溢价率
                 latest = etf_data.iloc[-1]
+                latest_iopv = iopv_data['iopv'].iloc[-1]
                 premium_rate = (latest['close'] - latest_iopv) / latest_iopv * 100
                 
                 # 如果溢价率超过阈值，视为套利机会
@@ -713,7 +721,8 @@ def cron_new_stock_info():
         return jsonify(response) if has_app_context() else response
     
     # 检查是否已经推送过
-    if read_new_stock_pushed_flag(get_beijing_time().date())[1]:
+    flag_path, is_pushed = read_new_stock_pushed_flag(get_beijing_time().date())
+    if is_pushed:
         logger.info("今天已经推送过新股信息，跳过")
         response = {
             "status": "skipped",
@@ -853,33 +862,78 @@ def main():
     # 根据任务类型执行不同操作
     if task == 'test_message':
         # T01: 测试消息推送
-        # 手动触发时不需要检查是否为测试请求
-        message = "【测试消息】ETF策略系统运行正常"
+        beijing_time = get_beijing_time().strftime('%Y-%m-%d %H:%M')
+        message = f"【测试消息】T01: 测试消息推送CF系统时间：{beijing_time}这是来自鱼盆ETF系统的测试消息。"
         success = send_wecom_message(message)
-        response = {"status": "success" if success else "error"}
+        response = {"status": "success" if success else "error", "message": "Test message sent"}
         print(json.dumps(response, indent=2))
         return response
     
     elif task == 'test_new_stock':
-        # T07: 测试新股信息推送
-        success = push_new_stock_info(test=True)
-        response = {"status": "success" if success else "error"}
-        print(json.dumps(response, indent=2))
-        return response
+        # T07: 测试推送新股信息
+        logger.info("执行测试新股信息推送任务")
+        # 获取测试用的新股申购信息
+        new_stocks = get_new_stock_subscriptions(test=True)
+        # 检查是否获取到新股数据
+        if new_stocks is None or new_stocks.empty:
+            message = "【测试】近7天没有新股、新债、新债券可认购"
+        else:
+            # 使用专用测试消息格式
+            message = "【测试新股信息】"
+            message += f"共发现{len(new_stocks)}只新股："
+            for _, row in new_stocks.iterrows():
+                message += f"申购代码：{row.get('股票代码', '')}\n"
+                message += f"股票简称：{row.get('股票简称', '')}\n"
+                message += f"发行价格：{row.get('发行价格', '')}元\n"
+                message += f"申购上限：{row.get('申购上限', '')}股\n"
+                message += f"申购日期：{row.get('申购日期', '')}\n"
+                message += "─" * 20 + "\n"
+        
+        message = "【测试消息】" + message
+        success = send_wecom_message(message)
+        
+        if success:
+            logger.info("测试新股信息推送成功")
+            return {"status": "success", "message": "Test new stocks sent"}
+        else:
+            logger.error("测试新股信息推送失败")
+            return {"status": "error", "message": "Failed to send test new stocks"}
     
     elif task == 'test_new_stock_listings':
         # T08: 测试新上市交易股票信息推送
-        success = push_listing_info(test=True)
-        response = {"status": "success" if success else "error"}
-        print(json.dumps(response, indent=2))
-        return response
+        logger.info("执行测试新上市交易信息推送任务")
+        # 获取测试用的新上市交易股票信息
+        new_listings = get_new_stock_listings(test=True)
+        # 检查是否获取到新上市交易股票数据
+        if new_listings is None or new_listings.empty:
+            message = "【测试】近7天没有新上市股票、可转债、债券可供交易"
+        else:
+            # 使用专用测试消息格式
+            message = "【测试新上市交易信息】"
+            message += f"共发现{len(new_listings)}只新上市交易股票："
+            for _, row in new_listings.iterrows():
+                message += f"股票代码：{row.get('股票代码', '')}\n"
+                message += f"股票简称：{row.get('股票简称', '')}\n"
+                message += f"发行价格：{row.get('发行价格', '')}元\n"
+                message += f"上市日期：{row.get('上市日期', '')}\n"
+                message += "─" * 20 + "\n"
+        
+        message = "【测试消息】" + message
+        success = send_wecom_message(message)
+        
+        if success:
+            logger.info("测试新上市交易信息推送成功")
+            return {"status": "success", "message": "Test new listings sent"}
+        else:
+            logger.error("测试新上市交易信息推送失败")
+            return {"status": "error", "message": "Failed to send test new listings"}
     
     elif task == 'test_stock_pool':
         # T04: 测试股票池推送
         stock_pool_message = generate_stock_pool()
         if stock_pool_message:
             success = send_wecom_message(stock_pool_message)
-            response = {"status": "success" if success else "error"}
+            response = {"status": "success" if success else "error", "message": "Stock pool test sent"}
         else:
             response = {"status": "error", "message": "Failed to generate stock pool"}
         print(json.dumps(response, indent=2))
@@ -888,7 +942,7 @@ def main():
     elif task == 'test_execute':
         # T05: 测试执行策略并推送结果
         success = push_strategy_results(test=True)
-        response = {"status": "success" if success else "error"}
+        response = {"status": "success" if success else "error", "message": "Strategy execution test completed"}
         print(json.dumps(response, indent=2))
         return response
     
@@ -909,9 +963,11 @@ def main():
         beijing_time = get_beijing_time().strftime('%Y-%m-%d %H:%M')
         for _, etf in stock_pool.iterrows():
             etf_type = 'stable' if etf['type'] == '稳健仓' else 'aggressive'
+            etf_code = etf['etf_code']
+            etf_name = etf.get('name', etf.get('etf_name', '未知'))
             signal = {
-                'etf_code': etf['code'],
-                'etf_name': etf['name'],
+                'etf_code': etf_code,
+                'etf_name': etf_name,
                 'cf_time': beijing_time,
                 'action': 'strong_sell',
                 'position': 0,
@@ -938,14 +994,14 @@ def main():
     elif task == 'test_arbitrage':
         # T09: 测试套利扫描
         success = check_arbitrage_opportunity()
-        response = {"status": "success" if success else "error"}
+        response = {"status": "success" if success else "error", "message": "Arbitrage test completed"}
         print(json.dumps(response, indent=2))
         return response
     
     elif task == 'crawl_new_stock':
         # 9:31 AM：爬取当天新股申购、新上市股票信息
-        success_new_stock = crawl_new_stock_info()
-        success_listing = crawl_new_listing_info()
+        success_new_stock = push_new_stock_info()
+        success_listing = push_listing_info()
         response = {
             "status": "success" if success_new_stock and success_listing else "partial_success",
             "new_stock": "success" if success_new_stock else "failed",
@@ -989,11 +1045,16 @@ def main():
     
     elif task == 'crawl_daily':
         # 4:00 PM：爬取日线数据
-        return cron_crawl_daily()
+        result = crawl_etf_data(data_type='daily')
+        print(json.dumps(result, indent=2))
+        return result
     
     elif task == 'cleanup':
         # 00:00 AM：清理旧数据
-        return cron_cleanup()
+        from data_fix import cron_cleanup
+        result = cron_cleanup()
+        print(json.dumps(result, indent=2))
+        return result
     
     else:
         error_msg = f"【系统错误】未知任务类型: {task}"
