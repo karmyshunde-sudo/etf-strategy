@@ -39,6 +39,15 @@ def is_trading_day():
     
     return True
 
+def standardize_code(code):
+    """标准化股票代码格式为 sh.510300 或 sz.159915"""
+    if code.startswith(('sh.', 'sz.')):
+        return code
+    elif code.startswith(('5', '119')):
+        return f"sh.{code}"
+    else:
+        return f"sz.{code}"
+
 def check_data_completeness(df, required_columns=None, min_records=5):
     """
     检查数据完整性
@@ -52,6 +61,7 @@ def check_data_completeness(df, required_columns=None, min_records=5):
         bool: 数据是否完整
     """
     if df is None or df.empty:
+        logger.warning("数据为空")
         return False
     
     # 检查必需的列
@@ -158,7 +168,7 @@ def get_new_stock_subscriptions(test=False):
                             else:
                                 logger.warning(f"{'测试模式' if test else '正常模式'}: AkShare返回的新股数据不完整，将尝试备用数据源...")
             except Exception as e:
-                logger.error(f"{'测试模式' if test else '正常模式'}: AkShare获取新股信息失败: {str(e)}")
+                logger.error(f"{'测试模式' if test else '正常模式'}: AkShare获取新股信息失败: {str(e)}", exc_info=True)
             
             # 尝试Baostock（备用数据源）
             try:
@@ -221,7 +231,7 @@ def get_new_stock_subscriptions(test=False):
                 except AttributeError:
                     pass
             except Exception as e:
-                logger.error(f"{'测试模式' if test else '正常模式'}: Baostock获取新股信息失败: {str(e)}")
+                logger.error(f"{'测试模式' if test else '正常模式'}: Baostock获取新股信息失败: {str(e)}", exc_info=True)
             finally:
                 try:
                     bs.logout()
@@ -233,7 +243,7 @@ def get_new_stock_subscriptions(test=False):
         
     except Exception as e:
         error_msg = f"{'测试模式' if test else '正常模式'}: 【数据错误】获取新股申购信息失败: {str(e)}"
-        logger.error(error_msg)
+        logger.error(error_msg, exc_info=True)
         send_wecom_message(error_msg)
         return pd.DataFrame()
 
@@ -289,7 +299,7 @@ def get_new_stock_listings(test=False):
                             else:
                                 logger.warning(f"{'测试模式' if test else '正常模式'}: AkShare返回的新上市交易数据不完整，将尝试备用数据源...")
             except Exception as e:
-                logger.error(f"{'测试模式' if test else '正常模式'}: AkShare获取新上市交易信息失败: {str(e)}")
+                logger.error(f"{'测试模式' if test else '正常模式'}: AkShare获取新上市交易信息失败: {str(e)}", exc_info=True)
             
             # 尝试Baostock（备用数据源）
             try:
@@ -350,7 +360,7 @@ def get_new_stock_listings(test=False):
                 except AttributeError:
                     pass
             except Exception as e:
-                logger.error(f"{'测试模式' if test else '正常模式'}: Baostock获取新上市交易信息失败: {str(e)}")
+                logger.error(f"{'测试模式' if test else '正常模式'}: Baostock获取新上市交易信息失败: {str(e)}", exc_info=True)
             finally:
                 try:
                     bs.logout()
@@ -362,7 +372,7 @@ def get_new_stock_listings(test=False):
         
     except Exception as e:
         error_msg = f"{'测试模式' if test else '正常模式'}: 【数据错误】获取新上市交易信息失败: {str(e)}"
-        logger.error(error_msg)
+        logger.error(error_msg, exc_info=True)
         send_wecom_message(error_msg)
         return pd.DataFrame()
 
@@ -376,10 +386,10 @@ def get_all_etf_list():
         logger.info("尝试从AkShare获取ETF列表...")
         # 使用 fund_etf_spot_em 获取实时ETF列表
         df = ak.fund_etf_spot_em()
-        logger.info(f"AkShare返回ETF列表数据，共 {len(df)} 条记录")  # 添加关键日志
+        logger.info(f"AkShare返回ETF列表数据，共 {len(df)} 条记录")
         
         if not df.empty:
-            logger.info(f"AkShare返回的列名: {df.columns.tolist()}")  # 添加关键日志
+            logger.info(f"AkShare返回的列名: {df.columns.tolist()}")
             
             # 动态匹配列名 - 增强容错能力
             code_col = next((col for col in df.columns 
@@ -415,10 +425,10 @@ def get_all_etf_list():
     try:
         logger.info("尝试从AkShare备用接口获取ETF列表...")
         df = ak.fund_etf_hist_sina(symbol="etf")
-        logger.info(f"AkShare备用接口返回 {len(df)} 条记录")  # 添加关键日志
+        logger.info(f"AkShare备用接口返回 {len(df)} 条记录")
         
         if not df.empty:
-            logger.info(f"AkShare备用接口返回的列名: {df.columns.tolist()}")  # 添加关键日志
+            logger.info(f"AkShare备用接口返回的列名: {df.columns.tolist()}")
             
             # 动态匹配列名 - 增强容错能力
             code_col = next((col for col in df.columns 
@@ -463,8 +473,8 @@ def get_all_etf_list():
                 data_list.append(rs.get_row_data())
             df = pd.DataFrame(data_list, columns=rs.fields)
             if not df.empty:
-                logger.info(f"Baostock返回 {len(df)} 条股票记录")  # 添加关键日志
-                logger.info(f"Baostock返回的列名: {df.columns.tolist()}")  # 添加关键日志
+                logger.info(f"Baostock返回 {len(df)} 条股票记录")
+                logger.info(f"Baostock返回的列名: {df.columns.tolist()}")
                 
                 # 筛选ETF类型证券（通常以51或15开头）
                 etf_list = df[df['code'].str.startswith(('51', '58', '15', '16'))]
@@ -499,7 +509,7 @@ def get_all_etf_list():
         if response.status_code == 200:
             data = json.loads(response.text)
             if data:
-                logger.info(f"新浪财经返回 {len(data)} 条ETF记录")  # 添加关键日志
+                logger.info(f"新浪财经返回 {len(data)} 条ETF记录")
                 
                 etf_list = pd.DataFrame(data)
                 etf_list['code'] = etf_list['symbol'].apply(
@@ -520,16 +530,14 @@ def get_all_etf_list():
     send_wecom_message(error_msg)
     return pd.DataFrame()
 
-
 def get_etf_data(etf_code, data_type='daily'):
     """从多数据源获取ETF数据（增量获取）
     参数:
         etf_code: ETF代码
         data_type: 'daily'或'intraday'
     返回:
-        DataFrame: ETF数据或None（如果所有数据源都失败）
-    """
-    # 确保etf_code格式正确
+        DataFrame: ETF数据或None（如果所有数据源都失败）"""
+    # 确保etf_code是标准化格式（sh.588940或sz.159915）
     if not etf_code.startswith(('sh.', 'sz.')):
         if etf_code.startswith(('5', '119')):
             etf_code = f"sh.{etf_code}"
@@ -629,14 +637,18 @@ def get_etf_data(etf_code, data_type='daily'):
             if 'date' in df.columns:
                 df = df.sort_values('date')
             
+            # 关键修复：添加详细日志记录数据完整性检查
+            is_complete = check_data_completeness(df)
+            logger.info(f"数据完整性检查结果 {etf_code}: {'通过' if is_complete else '未通过'}")
+            
             # 检查数据完整性
-            if check_data_completeness(df):
+            if is_complete:
                 logger.info(f"从AkShare成功获取 {etf_code} 新数据 ({len(df)}条记录)")
                 # 保存到缓存
                 save_to_cache(etf_code, df, data_type)
                 return df
             else:
-                logger.warning(f"AkShare返回的{etf_code}数据不完整")
+                logger.warning(f"AkShare返回的{etf_code}数据不完整，将尝试备用数据源...")
     except Exception as e:
         logger.error(f"AkShare获取{etf_code}数据失败: {str(e)}", exc_info=True)
     
@@ -675,7 +687,8 @@ def get_etf_data(etf_code, data_type='daily'):
         bs.logout()  # 使用后登出
         
         if not df.empty:
-            logger.info(f"Baostock返回 {len(df)} 条数据")  # 添加关键日志
+            logger.info(f"Baostock返回 {len(df)} 条数据")
+            logger.info(f"Baostock返回的列名: {df.columns.tolist()}")
             
             # 转换数据类型
             try:
@@ -692,8 +705,12 @@ def get_etf_data(etf_code, data_type='daily'):
             # 按日期排序
             df = df.sort_values('date')
             
+            # 关键修复：添加详细日志记录数据完整性检查
+            is_complete = check_data_completeness(df)
+            logger.info(f"Baostock数据完整性检查结果 {etf_code}: {'通过' if is_complete else '未通过'}")
+            
             # 检查数据完整性
-            if check_data_completeness(df):
+            if is_complete:
                 logger.info(f"从Baostock成功获取 {etf_code} 新数据 ({len(df)}条记录)")
                 # 保存到缓存
                 save_to_cache(etf_code, df, data_type)
@@ -707,7 +724,6 @@ def get_etf_data(etf_code, data_type='daily'):
     logger.error(error_msg)
     send_wecom_message(error_msg)
     return None
-
 
 def get_market_sentiment():
     """获取市场情绪指标（简化版）"""
@@ -772,6 +788,13 @@ def mark_listing_info_pushed():
 
 def get_cache_path(etf_code, data_type='daily'):
     """获取缓存文件路径"""
+    # 确保etf_code是标准化格式
+    if not etf_code.startswith(('sh.', 'sz.')):
+        if etf_code.startswith(('5', '119')):
+            etf_code = f"sh.{etf_code}"
+        else:
+            etf_code = f"sz.{etf_code}"
+    
     cache_dir = os.path.join(Config.RAW_DATA_DIR, 'cache', data_type)
     os.makedirs(cache_dir, exist_ok=True)
     return os.path.join(cache_dir, f'{etf_code}.csv')
@@ -784,6 +807,13 @@ def load_from_cache(etf_code, data_type='daily', days=30):
         days: 返回最近days天的数据
     返回:
         DataFrame: ETF数据或None（如果失败）"""
+    # 确保etf_code是标准化格式
+    if not etf_code.startswith(('sh.', 'sz.')):
+        if etf_code.startswith(('5', '119')):
+            etf_code = f"sh.{etf_code}"
+        else:
+            etf_code = f"sz.{etf_code}"
+    
     cache_path = get_cache_path(etf_code, data_type)
     
     # 关键修复：检查缓存文件是否存在
@@ -793,7 +823,7 @@ def load_from_cache(etf_code, data_type='daily', days=30):
         
     try:
         df = pd.read_csv(cache_path)
-        logger.info(f"成功加载缓存文件: {cache_path}，共 {len(df)} 条记录")  # 添加关键日志
+        logger.info(f"成功加载缓存文件: {cache_path}，共 {len(df)} 条记录")
         
         # 确保日期列存在
         if 'date' not in df.columns:
@@ -818,6 +848,13 @@ def save_to_cache(etf_code, data, data_type='daily'):
          DataFrame数据
         data_type: 'daily'或'intraday'
     """
+    # 确保etf_code是标准化格式
+    if not etf_code.startswith(('sh.', 'sz.')):
+        if etf_code.startswith(('5', '119')):
+            etf_code = f"sh.{etf_code}"
+        else:
+            etf_code = f"sz.{etf_code}"
+    
     if data is None or data.empty:
         return False
     
@@ -846,7 +883,7 @@ def save_to_cache(etf_code, data, data_type='daily'):
         logger.info(f"成功保存 {etf_code} 数据到 {cache_path}")
         return True
     except Exception as e:
-        logger.error(f"保存 {etf_code} 数据失败: {str(e)}")
+        logger.error(f"保存 {etf_code} 数据失败: {str(e)}", exc_info=True)
         # 清理临时文件
         if os.path.exists(temp_path):
             try:
@@ -875,7 +912,7 @@ def update_crawl_status(etf_code, status, message=None):
         with open(status_file, 'w') as f:
             json.dump(status_data, f, indent=2)
     except Exception as e:
-        logger.error(f"更新爬取状态失败: {str(e)}")
+        logger.error(f"更新爬取状态失败: {str(e)}", exc_info=True)
 
 def get_crawl_status():
     """获取爬取状态"""
@@ -908,7 +945,8 @@ def crawl_etf_data(data_type='daily'):
     skipped_count = 0
     
     for _, etf in etf_list.iterrows():
-        etf_code = etf['code']
+        # 确保ETF代码是标准化格式
+        etf_code = standardize_code(etf['code'])
         try:
             # 获取起始日期（从缓存中获取最后日期）
             cached_data = load_from_cache(etf_code, 'daily')
@@ -923,6 +961,8 @@ def crawl_etf_data(data_type='daily'):
                 
                 start_date = (last_date + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
                 logger.info(f"ETF {etf_code} 已有数据到 {last_date.strftime('%Y-%m-%d')}，从 {start_date} 开始获取新数据")
+            else:
+                logger.info(f"ETF {etf_code} 无缓存数据，将获取全部数据")
             
             # 尝试主数据源(AkShare)
             data = get_etf_data(etf_code, 'daily')
@@ -939,7 +979,7 @@ def crawl_etf_data(data_type='daily'):
             
         except Exception as e:
             error_msg = f"【系统错误】爬取{etf_code}日线数据异常: {str(e)}"
-            logger.error(error_msg)
+            logger.error(error_msg, exc_info=True)
             send_wecom_message(error_msg)
             failed_count += 1
     
@@ -1119,7 +1159,8 @@ def check_data_integrity():
     # 检查每只ETF的最新数据
     today = datetime.datetime.now().date()
     for _, etf in etf_list.iterrows():
-        etf_code = etf['code']
+        # 确保ETF代码是标准化格式
+        etf_code = standardize_code(etf['code'])
         data = load_from_cache(etf_code, 'daily')
         if data is None or data.empty:
             error_msg = f"【数据错误】{etf_code}日线数据缺失"
