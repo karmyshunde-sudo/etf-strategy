@@ -105,149 +105,199 @@ def check_etf_list_completeness(df):
     logger.warning("ETF列表数据缺少必要列")
     return False
 
-def get_new_stock_subscriptions():
-    """获取当天新股申购信息"""
+def get_new_stock_subscriptions(test=False):
+    """获取新股申购信息
+    参数:
+        test: 是否为测试模式（测试模式下若当天无数据则回溯21天）
+    """
     try:
         today = get_beijing_time().strftime('%Y-%m-%d')
-        logger.info(f"尝试获取 {today} 的新股申购信息...")
+        logger.info(f"{'测试模式' if test else '正常模式'}: 尝试获取 {today} 的新股申购信息...")
         
-        # 尝试AkShare（主数据源）
-        try:
-            logger.info("尝试从AkShare获取新股申购信息...")
-            df = ak.stock_xgsglb_em()
-            if not df.empty and '申购日期' in df.columns:
-                # 确保日期列是正确格式
-                if not pd.api.types.is_datetime64_any_dtype(df['申购日期']):
-                    try:
-                        df['申购日期'] = pd.to_datetime(df['申购日期']).dt.strftime('%Y-%m-%d')
-                    except:
-                        pass
-                
-                df = df[df['申购日期'] == today]
-                if not df.empty:
-                    # 检查数据完整性
-                    if check_new_stock_completeness(df):
-                        logger.info(f"从AkShare成功获取 {len(df)} 条新股申购信息")
-                        return df[['股票代码', '股票简称', '发行价格', '申购上限', '申购日期']]
-                    else:
-                        logger.warning("AkShare返回的新股数据不完整，将尝试备用数据源...")
-        except Exception as e:
-            logger.error(f"AkShare获取新股信息失败: {str(e)}")
+        # 如果是测试模式，准备回溯21天
+        if test:
+            dates_to_try = [
+                (datetime.datetime.now().date() - datetime.timedelta(days=i))
+                for i in range(0, 22)
+            ]
+        else:
+            dates_to_try = [datetime.datetime.now().date()]
         
-        # 只有在AkShare失败或数据不完整时才尝试Baostock
-        logger.info("尝试从Baostock获取新股申购信息...")
-        try:
-            login_result = bs.login()
-            if login_result.error_code != '0':
-                logger.warning(f"Baostock登录失败: {login_result.error_msg}")
-                raise Exception("Baostock登录失败")
-                
-            # 获取新股列表
-            rs = bs.query_stock_new()
-            if rs.error_code != '0':
-                logger.error(f"Baostock查询失败: {rs.error_msg}")
-                raise Exception("Baostock查询失败")
-                
-            # 转换为DataFrame
-            data_list = []
-            while (rs.error_code == '0') & rs.next():
-                data_list.append(rs.get_row_data())
-            df = pd.DataFrame(data_list, columns=rs.fields)
+        for date_obj in dates_to_try:
+            date_str = date_obj.strftime('%Y-%m-%d')
+            logger.info(f"{'测试模式' if test else '正常模式'}: 尝试获取 {date_str} 的新股申购数据")
             
-            if not df.empty:
-                # 标准化日期格式
-                df['ipoDate'] = pd.to_datetime(df['ipoDate']).dt.strftime('%Y-%m-%d')
-                df = df[df['ipoDate'] == today]
-                if not df.empty and check_new_stock_completeness(df):
-                    logger.info(f"从Baostock成功获取 {len(df)} 条新股申购信息")
-                    return df[['code', 'code_name', 'price', 'max_purchase', 'ipoDate']].rename(columns={
-                        'code': '股票代码',
-                        'code_name': '股票简称',
-                        'price': '发行价格',
-                        'max_purchase': '申购上限',
-                        'ipoDate': '申购日期'
-                    })
-        except Exception as e:
-            logger.error(f"Baostock获取新股信息失败: {str(e)}")
+            # 尝试AkShare（主数据源）
+            try:
+                logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从AkShare获取新股申购信息...")
+                df = ak.stock_xgsglb_em()
+                if not df.empty:
+                    # 动态匹配日期列
+                    date_col = next((col for col in df.columns if '申购日期' in col), None)
+                    if date_col and date_col in df.columns:
+                        # 确保日期列是正确格式
+                        if not pd.api.types.is_datetime64_any_dtype(df[date_col]):
+                            try:
+                                df[date_col] = pd.to_datetime(df[date_col]).dt.strftime('%Y-%m-%d')
+                            except:
+                                pass
+                        
+                        # 筛选目标日期数据
+                        df = df[df[date_col] == date_str]
+                        if not df.empty:
+                            # 检查数据完整性
+                            if check_new_stock_completeness(df):
+                                logger.info(f"{'测试模式' if test else '正常模式'}: 从AkShare成功获取 {len(df)} 条新股申购信息")
+                                return df[['股票代码', '股票简称', '发行价格', '申购上限', '申购日期']]
+                            else:
+                                logger.warning(f"{'测试模式' if test else '正常模式'}: AkShare返回的新股数据不完整，将尝试备用数据源...")
+            except Exception as e:
+                logger.error(f"{'测试模式' if test else '正常模式'}: AkShare获取新股信息失败: {str(e)}")
+            
+            # 只有在AkShare失败或数据不完整时才尝试Baostock
+            try:
+                logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从Baostock获取新股申购信息...")
+                login_result = bs.login()
+                if login_result.error_code != '0':
+                    logger.warning(f"Baostock登录失败: {login_result.error_msg}")
+                    raise Exception("Baostock登录失败")
+                    
+                # 获取新股列表
+                rs = bs.query_stock_new()
+                if rs.error_code != '0':
+                    logger.error(f"Baostock查询失败: {rs.error_msg}")
+                    raise Exception("Baostock查询失败")
+                    
+                # 转换为DataFrame
+                data_list = []
+                while (rs.error_code == '0') & rs.next():
+                    data_list.append(rs.get_row_data())
+                df = pd.DataFrame(data_list, columns=rs.fields)
+                
+                if not df.empty:
+                    # 标准化日期格式
+                    df['ipoDate'] = pd.to_datetime(df['ipoDate']).dt.strftime('%Y-%m-%d')
+                    df = df[df['ipoDate'] == date_str]
+                    if not df.empty and check_new_stock_completeness(df):
+                        logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(df)} 条新股申购信息")
+                        return df[['code', 'code_name', 'price', 'max_purchase', 'ipoDate']].rename(columns={
+                            'code': '股票代码',
+                            'code_name': '股票简称',
+                            'price': '发行价格',
+                            'max_purchase': '申购上限',
+                            'ipoDate': '申购日期'
+                        })
+            except Exception as e:
+                logger.error(f"{'测试模式' if test else '正常模式'}: Baostock获取新股信息失败: {str(e)}")
+            finally:
+                try:
+                    bs.logout()
+                except:
+                    pass
         
-        logger.info(f"{today}未找到新股数据")
+        logger.info(f"{'测试模式' if test else '正常模式'}: 未找到新股数据")
         return pd.DataFrame()
         
     except Exception as e:
-        error_msg = f"【数据错误】获取新股申购信息失败: {str(e)}"
+        error_msg = f"{'测试模式' if test else '正常模式'}: 【数据错误】获取新股申购信息失败: {str(e)}"
         logger.error(error_msg)
         send_wecom_message(error_msg)
         return pd.DataFrame()
 
-def get_new_stock_listings():
-    """获取当天新上市交易的新股信息"""
+def get_new_stock_listings(test=False):
+    """获取新上市交易的新股信息
+    参数:
+        test: 是否为测试模式（测试模式下若当天无数据则回溯21天）
+    """
     try:
         today = get_beijing_time().strftime('%Y-%m-%d')
-        logger.info(f"尝试获取 {today} 的新上市交易信息...")
+        logger.info(f"{'测试模式' if test else '正常模式'}: 尝试获取 {today} 的新上市交易信息...")
         
-        # 尝试AkShare（主数据源）
-        try:
-            logger.info("尝试从AkShare获取新上市交易信息...")
-            df = ak.stock_xgsglb_em()
-            if not df.empty and '上市日期' in df.columns:
-                # 确保日期列是正确格式
-                if not pd.api.types.is_datetime64_any_dtype(df['上市日期']):
-                    try:
-                        df['上市日期'] = pd.to_datetime(df['上市日期']).dt.strftime('%Y-%m-%d')
-                    except:
-                        pass
-                
-                df = df[df['上市日期'] == today]
-                if not df.empty:
-                    # 检查数据完整性
-                    if check_new_listing_completeness(df):
-                        logger.info(f"从AkShare成功获取 {len(df)} 条新上市交易信息")
-                        return df[['股票代码', '股票简称', '发行价格', '上市日期']]
-                    else:
-                        logger.warning("AkShare返回的新上市交易数据不完整，将尝试备用数据源...")
-        except Exception as e:
-            logger.error(f"AkShare获取新上市交易信息失败: {str(e)}")
+        # 如果是测试模式，准备回溯21天
+        if test:
+            dates_to_try = [
+                (datetime.datetime.now().date() - datetime.timedelta(days=i))
+                for i in range(0, 22)
+            ]
+        else:
+            dates_to_try = [datetime.datetime.now().date()]
         
-        # 只有在AkShare失败或数据不完整时才尝试Baostock
-        logger.info("尝试从Baostock获取新上市交易信息...")
-        try:
-            login_result = bs.login()
-            if login_result.error_code != '0':
-                logger.warning(f"Baostock登录失败: {login_result.error_msg}")
-                raise Exception("Baostock登录失败")
-                
-            # 获取所有股票信息
-            rs = bs.query_stock_basic()
-            if rs.error_code != '0':
-                logger.error(f"Baostock查询失败: {rs.error_msg}")
-                raise Exception("Baostock查询失败")
-                
-            # 转换为DataFrame
-            data_list = []
-            while (rs.error_code == '0') & rs.next():
-                data_list.append(rs.get_row_data())
-            df = pd.DataFrame(data_list, columns=rs.fields)
+        for date_obj in dates_to_try:
+            date_str = date_obj.strftime('%Y-%m-%d')
+            logger.info(f"{'测试模式' if test else '正常模式'}: 尝试获取 {date_str} 的新上市交易数据")
             
-            if not df.empty:
-                # 标准化日期格式
-                df['list_date'] = pd.to_datetime(df['list_date']).dt.strftime('%Y-%m-%d')
-                df = df[df['list_date'] == today]
-                if not df.empty and check_new_listing_completeness(df):
-                    logger.info(f"从Baostock成功获取 {len(df)} 条新上市交易信息")
-                    return df[['code', 'code_name', 'issue_price', 'list_date']].rename(columns={
-                        'code': '股票代码',
-                        'code_name': '股票简称',
-                        'issue_price': '发行价格',
-                        'list_date': '上市日期'
-                    })
-        except Exception as e:
-            logger.error(f"Baostock获取新上市交易信息失败: {str(e)}")
+            # 尝试AkShare（主数据源）
+            try:
+                logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从AkShare获取新上市交易信息...")
+                df = ak.stock_xgsglb_em()
+                if not df.empty:
+                    # 动态匹配上市日期列
+                    listing_date_col = next((col for col in df.columns if '上市日期' in col), None)
+                    if listing_date_col and listing_date_col in df.columns:
+                        # 确保日期列是正确格式
+                        if not pd.api.types.is_datetime64_any_dtype(df[listing_date_col]):
+                            try:
+                                df[listing_date_col] = pd.to_datetime(df[listing_date_col]).dt.strftime('%Y-%m-%d')
+                            except:
+                                pass
+                        
+                        # 筛选目标日期数据
+                        df = df[df[listing_date_col] == date_str]
+                        if not df.empty:
+                            # 检查数据完整性
+                            if check_new_listing_completeness(df):
+                                logger.info(f"{'测试模式' if test else '正常模式'}: 从AkShare成功获取 {len(df)} 条新上市交易信息")
+                                return df[['股票代码', '股票简称', '发行价格', '上市日期']]
+                            else:
+                                logger.warning(f"{'测试模式' if test else '正常模式'}: AkShare返回的新上市交易数据不完整，将尝试备用数据源...")
+            except Exception as e:
+                logger.error(f"{'测试模式' if test else '正常模式'}: AkShare获取新上市交易信息失败: {str(e)}")
+            
+            # 只有在AkShare失败或数据不完整时才尝试Baostock
+            try:
+                logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从Baostock获取新上市交易信息...")
+                login_result = bs.login()
+                if login_result.error_code != '0':
+                    logger.warning(f"Baostock登录失败: {login_result.error_msg}")
+                    raise Exception("Baostock登录失败")
+                    
+                # 获取所有股票信息
+                rs = bs.query_stock_basic()
+                if rs.error_code != '0':
+                    logger.error(f"Baostock查询失败: {rs.error_msg}")
+                    raise Exception("Baostock查询失败")
+                    
+                # 转换为DataFrame
+                data_list = []
+                while (rs.error_code == '0') & rs.next():
+                    data_list.append(rs.get_row_data())
+                df = pd.DataFrame(data_list, columns=rs.fields)
+                
+                if not df.empty:
+                    # 标准化日期格式
+                    df['list_date'] = pd.to_datetime(df['list_date']).dt.strftime('%Y-%m-%d')
+                    df = df[df['list_date'] == date_str]
+                    if not df.empty and check_new_listing_completeness(df):
+                        logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(df)} 条新上市交易信息")
+                        return df[['code', 'code_name', 'issue_price', 'list_date']].rename(columns={
+                            'code': '股票代码',
+                            'code_name': '股票简称',
+                            'issue_price': '发行价格',
+                            'list_date': '上市日期'
+                        })
+            except Exception as e:
+                logger.error(f"{'测试模式' if test else '正常模式'}: Baostock获取新上市交易信息失败: {str(e)}")
+            finally:
+                try:
+                    bs.logout()
+                except:
+                    pass
         
-        logger.info(f"{today}未找到新上市交易数据")
+        logger.info(f"{'测试模式' if test else '正常模式'}: 未找到新上市交易数据")
         return pd.DataFrame()
         
     except Exception as e:
-        error_msg = f"【数据错误】获取新上市交易信息失败: {str(e)}"
+        error_msg = f"{'测试模式' if test else '正常模式'}: 【数据错误】获取新上市交易信息失败: {str(e)}"
         logger.error(error_msg)
         send_wecom_message(error_msg)
         return pd.DataFrame()
@@ -311,7 +361,7 @@ def get_all_etf_list():
     return pd.DataFrame()
 
 def get_etf_data(etf_code, data_type='daily'):
-    """从多数据源获取ETF数据
+    """从多数据源获取ETF数据（增量获取）
     参数:
         etf_code: ETF代码
         data_type: 'daily'或'intraday'
@@ -322,7 +372,14 @@ def get_etf_data(etf_code, data_type='daily'):
     cached_data = load_from_cache(etf_code, data_type)
     if cached_data is not None and not cached_data.empty:
         logger.info(f"使用缓存数据 {etf_code} ({len(cached_data)}条记录)")
-        return cached_data
+        
+        # 获取起始日期（从缓存中获取最后日期）
+        last_date = cached_data['date'].max()
+        start_date = (last_date + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+        logger.info(f"ETF {etf_code} 已有数据到 {last_date.strftime('%Y-%m-%d')}，从 {start_date} 开始获取新数据")
+    else:
+        logger.info(f"ETF {etf_code} 无缓存数据，将获取全部数据")
+        start_date = None
     
     # 尝试AkShare（主数据源）
     try:
@@ -370,12 +427,17 @@ def get_etf_data(etf_code, data_type='daily'):
             # 将日期转换为datetime
             df['date'] = pd.to_datetime(df['date'])
             
+            # 如果指定了起始日期，只获取新数据
+            if start_date:
+                df = df[df['date'] >= pd.to_datetime(start_date)]
+            
             # 按日期排序
             df = df.sort_values('date')
             
             # 检查数据完整性
             if check_data_completeness(df):
-                logger.info(f"从AkShare成功获取 {etf_code} 完整数据 ({len(df)}条记录)")
+                logger.info(f"从AkShare成功获取 {etf_code} 新数据 ({len(df)}条记录)")
+                # 保存到缓存
                 save_to_cache(etf_code, df, data_type)
                 return df
             else:
@@ -391,12 +453,20 @@ def get_etf_data(etf_code, data_type='daily'):
             logger.warning(f"Baostock登录失败: {login_result.error_msg}")
             raise Exception("Baostock登录失败")
         
+        # 如果有缓存，只获取新数据；否则获取最近100天数据
+        if start_date:
+            start_date_str = start_date
+            end_date_str = datetime.datetime.now().strftime('%Y-%m-%d')
+        else:
+            start_date_str = (datetime.datetime.now() - datetime.timedelta(days=100)).strftime('%Y-%m-%d')
+            end_date_str = datetime.datetime.now().strftime('%Y-%m-%d')
+        
         # 获取日线数据
         rs = bs.query_history_k_data_plus(
             etf_code.replace('sh.', '').replace('sz.', ''),
             "date,open,high,low,close,volume",
-            start_date=(datetime.datetime.now() - datetime.timedelta(days=100)).strftime('%Y-%m-%d'),
-            end_date=datetime.datetime.now().strftime('%Y-%m-%d'),
+            start_date=start_date_str,
+            end_date=end_date_str,
             frequency="d", 
             adjustflag="3"
         )
@@ -423,7 +493,8 @@ def get_etf_data(etf_code, data_type='daily'):
             
             # 检查数据完整性
             if check_data_completeness(df):
-                logger.info(f"从Baostock成功获取 {etf_code} 完整数据 ({len(df)}条记录)")
+                logger.info(f"从Baostock成功获取 {etf_code} 新数据 ({len(df)}条记录)")
+                # 保存到缓存
                 save_to_cache(etf_code, df, data_type)
                 return df
             else:
@@ -435,197 +506,6 @@ def get_etf_data(etf_code, data_type='daily'):
     logger.error(error_msg)
     send_wecom_message(error_msg)
     return None
-
-def get_test_new_stock_subscriptions():
-    """获取测试用的新股申购信息（回溯21天）"""
-    try:
-        today = get_beijing_time().strftime('%Y-%m-%d')
-        logger.info(f"测试模式: 尝试获取 {today} 的新股申购信息（回溯21天）")
-        
-        # 准备回溯21天的日期
-        dates_to_try = [
-            (datetime.datetime.now().date() - datetime.timedelta(days=i))
-            for i in range(0, 22)
-        ]
-        
-        # 优先尝试AkShare
-        for date_obj in dates_to_try:
-            date_str = date_obj.strftime('%Y-%m-%d')
-            logger.info(f"测试模式: 尝试获取 {date_str} 的申购数据")
-            
-            try:
-                # 尝试AkShare
-                df = ak.stock_xgsglb_em()
-                if df.empty:
-                    logger.warning(f"AkShare返回空数据")
-                    continue
-                
-                # 处理日期列
-                if '申购日期' in df.columns:
-                    # 确保日期列是datetime.date类型
-                    if not pd.api.types.is_datetime64_any_dtype(df['申购日期']):
-                        try:
-                            df['申购日期'] = pd.to_datetime(df['申购日期']).dt.date
-                        except:
-                            pass
-                    
-                    # 转换为字符串格式进行比较
-                    df['申购日期'] = df['申购日期'].apply(lambda x: x.strftime('%Y-%m-%d') if isinstance(x, datetime.date) else x)
-                    
-                    df = df[df['申购日期'] == date_str]
-                    if not df.empty:
-                        logger.info(f"测试模式: 从AkShare获取{date_str}的新股申购数据")
-                        return df[['股票代码', '股票简称', '发行价格', '申购上限', '申购日期']]
-            except Exception as e:
-                logger.error(f"测试模式: AkShare获取{date_str}数据失败: {str(e)}")
-        
-        # 如果AkShare没有数据，尝试Baostock
-        for date_obj in dates_to_try:
-            date_str = date_obj.strftime('%Y-%m-%d')
-            logger.info(f"测试模式: 尝试从Baostock获取 {date_str} 的申购数据")
-            
-            try:
-                login_result = bs.login()
-                if login_result.error_code != '0':
-                    logger.warning(f"Baostock登录失败: {login_result.error_msg}")
-                    continue
-                
-                # 获取新股列表
-                rs = bs.query_stock_new()
-                if rs.error_code != '0':
-                    logger.error(f"Baostock查询失败: {rs.error_msg}")
-                    continue
-                
-                # 转换为DataFrame
-                data_list = []
-                while (rs.error_code == '0') & rs.next():
-                    data_list.append(rs.get_row_data())
-                if data_list:
-                    df = pd.DataFrame(data_list, columns=rs.fields)
-                    
-                    # 标准化日期格式
-                    df['ipoDate'] = pd.to_datetime(df['ipoDate']).dt.strftime('%Y-%m-%d')
-                    df = df[df['ipoDate'] == date_str]
-                    if not df.empty:
-                        logger.info(f"测试模式: 从Baostock获取{date_str}的新股申购数据")
-                        return df[['code', 'code_name', 'price', 'max_purchase', 'ipoDate']].rename(columns={
-                            'code': '股票代码',
-                            'code_name': '股票简称',
-                            'price': '发行价格',
-                            'max_purchase': '申购上限',
-                            'ipoDate': '申购日期'
-                        })
-            except Exception as e:
-                logger.error(f"测试模式: Baostock获取{date_str}数据失败: {str(e)}")
-            finally:
-                try:
-                    bs.logout()
-                except:
-                    pass
-        
-        logger.info("测试模式: 未找到新股数据")
-        return pd.DataFrame()
-        
-    except Exception as e:
-        error_msg = f"【数据错误】测试模式获取新股申购信息失败: {str(e)}"
-        logger.error(error_msg)
-        send_wecom_message(error_msg)
-        return pd.DataFrame()
-
-def get_test_new_stock_listings():
-    """获取测试用的新上市交易股票信息（回溯21天）"""
-    try:
-        today = get_beijing_time().strftime('%Y-%m-%d')
-        logger.info(f"测试模式: 尝试获取 {today} 的新上市交易信息（回溯21天）")
-        
-        # 准备回溯21天的日期
-        dates_to_try = [
-            (datetime.datetime.now().date() - datetime.timedelta(days=i))
-            for i in range(0, 22)
-        ]
-        
-        # 优先尝试AkShare
-        for date_obj in dates_to_try:
-            date_str = date_obj.strftime('%Y-%m-%d')
-            logger.info(f"测试模式: 尝试获取 {date_str} 的上市数据")
-            
-            try:
-                # 尝试AkShare
-                df = ak.stock_xgsglb_em()
-                if df.empty:
-                    logger.warning(f"AkShare返回空数据")
-                    continue
-                
-                # 处理日期列
-                if '上市日期' in df.columns:
-                    # 确保日期列是datetime.date类型
-                    if not pd.api.types.is_datetime64_any_dtype(df['上市日期']):
-                        try:
-                            df['上市日期'] = pd.to_datetime(df['上市日期']).dt.date
-                        except:
-                            pass
-                    
-                    # 转换为字符串格式进行比较
-                    df['上市日期'] = df['上市日期'].apply(lambda x: x.strftime('%Y-%m-%d') if isinstance(x, datetime.date) else x)
-                    
-                    df = df[df['上市日期'] == date_str]
-                    if not df.empty:
-                        logger.info(f"测试模式: 从AkShare获取{date_str}的新上市交易数据")
-                        return df[['股票代码', '股票简称', '发行价格', '上市日期']]
-            except Exception as e:
-                logger.error(f"测试模式: AkShare获取{date_str}数据失败: {str(e)}")
-        
-        # 如果AkShare没有数据，尝试Baostock
-        for date_obj in dates_to_try:
-            date_str = date_obj.strftime('%Y-%m-%d')
-            logger.info(f"测试模式: 尝试从Baostock获取 {date_str} 的上市数据")
-            
-            try:
-                login_result = bs.login()
-                if login_result.error_code != '0':
-                    logger.warning(f"Baostock登录失败: {login_result.error_msg}")
-                    continue
-                
-                # 获取所有股票信息
-                rs = bs.query_stock_basic()
-                if rs.error_code != '0':
-                    logger.error(f"Baostock查询失败: {rs.error_msg}")
-                    continue
-                
-                # 转换为DataFrame
-                data_list = []
-                while (rs.error_code == '0') & rs.next():
-                    data_list.append(rs.get_row_data())
-                if data_list:
-                    df = pd.DataFrame(data_list, columns=rs.fields)
-                    
-                    # 标准化日期格式
-                    df['list_date'] = pd.to_datetime(df['list_date']).dt.strftime('%Y-%m-%d')
-                    df = df[df['list_date'] == date_str]
-                    if not df.empty:
-                        logger.info(f"测试模式: 从Baostock获取{date_str}的新上市交易数据")
-                        return df[['code', 'code_name', 'issue_price', 'list_date']].rename(columns={
-                            'code': '股票代码',
-                            'code_name': '股票简称',
-                            'issue_price': '发行价格',
-                            'list_date': '上市日期'
-                        })
-            except Exception as e:
-                logger.error(f"测试模式: Baostock获取{date_str}数据失败: {str(e)}")
-            finally:
-                try:
-                    bs.logout()
-                except:
-                    pass
-        
-        logger.info("测试模式: 未找到新上市交易数据")
-        return pd.DataFrame()
-        
-    except Exception as e:
-        error_msg = f"【数据错误】测试模式获取新上市交易信息失败: {str(e)}"
-        logger.error(error_msg)
-        send_wecom_message(error_msg)
-        return pd.DataFrame()
 
 def get_market_sentiment():
     """获取市场情绪指标（简化版）"""
@@ -718,7 +598,12 @@ def load_from_cache(etf_code, data_type='daily', days=30):
         return None
 
 def save_to_cache(etf_code, data, data_type='daily'):
-    """增强版：将ETF数据保存到缓存（原子操作）"""
+    """将ETF数据保存到缓存（增量保存）
+    参数:
+        etf_code: ETF代码
+        data: DataFrame数据
+        data_type: 'daily'或'intraday'
+    """
     if data is None or data.empty:
         return False
     
@@ -790,7 +675,7 @@ def get_crawl_status():
     return {}
 
 def crawl_etf_data(data_type='daily'):
-    """爬取ETF数据
+    """爬取ETF数据（增量爬取）
     参数:
         data_type: 数据类型 ('daily' 或 'intraday')
     返回:
@@ -816,6 +701,12 @@ def crawl_etf_data(data_type='daily'):
             start_date = None
             if cached_data is not None and not cached_data.empty:
                 last_date = cached_data['date'].max()
+                # 检查是否已获取到最新数据
+                if (datetime.datetime.now().date() - last_date.date()).days <= 1:
+                    logger.info(f"ETF {etf_code} 已有最新数据到 {last_date.strftime('%Y-%m-%d')}，跳过爬取")
+                    skipped_count += 1
+                    continue
+                
                 start_date = (last_date + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
                 logger.info(f"ETF {etf_code} 已有数据到 {last_date.strftime('%Y-%m-%d')}，从 {start_date} 开始获取新数据")
             
@@ -857,7 +748,7 @@ def crawl_etf_data(data_type='daily'):
     }
 
 def cron_crawl_daily():
-    """爬取日线数据"""
+    """爬取日线数据（增量爬取）"""
     logger.info("日线数据爬取任务触发")
     
     # 检查是否为交易日
