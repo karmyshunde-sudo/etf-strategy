@@ -6,7 +6,7 @@ baostock
 tushare
 pytz
 numpy
-akshare==1.18.32  # 截至2025年8月23日
+akshare>=1.17.39  # 截至2025年8月23日应该是1.18.32的，但出错
 pandas>=1.5.3
 jqdatasdk
 retrying==1.3.3
