@@ -48,7 +48,7 @@ class Config:
     
     # 数据完整性检查配置
     MIN_DATA_DAYS = 30  # 最小数据天数
-    MAX_DATA_AGE = 1    # 最大数据年龄（天）
+    MAX_DATA_AGE = 2    # 最大数据年龄（天）
     
     # 日志级别 - 关键修复：必须定义此项
     LOG_LEVEL = 'INFO'
