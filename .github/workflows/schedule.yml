@@ -206,9 +206,7 @@ jobs:
 
   # 9:55 AM：爬取当天ETF交易数据
   crawl_intraday:
-    if: ${{ 
-      (github.event_name == 'schedule' && contains(github.event.schedule, '55 1 * * 1-5'))
-    }}
+    if: ${{ (github.event_name == 'schedule' && contains(github.event.schedule, '55 1 * * 1-5')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -259,9 +257,7 @@ jobs:
 
   # 13:00 PM：套利扫描、股票池策略计算与推送
   arbitrage_and_strategy:
-    if: ${{ 
-      (github.event_name == 'schedule' && contains(github.event.schedule, '0 5 * * 1-5'))
-    }}
+    if: ${{ (github.event_name == 'schedule' && contains(github.event.schedule, '0 5 * * 1-5')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -328,9 +324,7 @@ jobs:
 
   # 16:00 PM：爬取日线数据
   crawl_daily:
-    if: ${{ 
-      (github.event_name == 'schedule' && contains(github.event.schedule, '0 8 * * 1-5'))
-    }}
+    if: ${{ (github.event_name == 'schedule' && contains(github.event.schedule, '0 8 * * 1-5')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -381,9 +375,7 @@ jobs:
 
   # 00:00 AM：清理旧数据
   cleanup:
-    if: ${{ 
-      (github.event_name == 'schedule' && contains(github.event.schedule, '0 16 * * *'))
-    }}
+    if: ${{ (github.event_name == 'schedule' && contains(github.event.schedule, '0 16 * * *')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -433,9 +425,7 @@ jobs:
 
   # 断点续爬任务（每2小时执行一次，仅在非交易时间）
   resume_crawl:
-    if: ${{ 
-      (github.event_name == 'schedule' && contains(github.event.schedule, '0 */2 * * *'))
-    }}
+    if: ${{ (github.event_name == 'schedule' && contains(github.event.schedule, '0 */2 * * *')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
