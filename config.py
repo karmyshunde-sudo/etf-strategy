@@ -44,18 +44,48 @@ class Config:
     WECOM_WEBHOOK = os.getenv('WECOM_WEBHOOK', '')
     
     # 消息底部附加信息
-    MESSAGE_FOOTER = "【鱼盆ETF投资量化系统】全自动决策| 无需人工干预| 版本号250820.10.02"
+    MESSAGE_FOOTER = "【etf-strategy】20250823-Ver3.0"
     
     # 数据完整性检查配置
     MIN_DATA_DAYS = 30  # 最小数据天数
     MAX_DATA_AGE = 2    # 最大数据年龄（天）
     
-    # 日志级别 - 关键修复：必须定义此项
+    # 日志级别
     LOG_LEVEL = 'INFO'
+    
+    # 日志文件路径
+    LOG_FILE = os.path.join(BASE_DIR, 'etf_strategy.log')
+    
+    # 定时任务验证密钥（从环境变量获取）
+    CRON_SECRET = os.getenv('CRON_SECRET', 'default-secret')
+    
+    # 最大重试次数
+    MAX_RETRIES = 3
+    
+    # 重试间隔(秒)
+    RETRY_DELAY = 5
+    
+    # AkShare API令牌
+    AKSHARE_TOKEN = None
+    
+    # Baostock用户名
+    BAOSTOCK_USER = ''
+    
+    # Baostock密码
+    BAOSTOCK_PWD = ''
+    
+    # 新浪财经API基础URL
+    SINA_FINANCE_URL = 'http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php'
+    
+    # 聚宽配置
+    JOINQUANT_USERNAME = os.getenv('JOINQUANT_USERNAME', '13929178188')
+    JOINQUANT_PASSWORD = os.getenv('JOINQUANT_PASSWORD', 'aA22280090')
     
     @classmethod
     def init_directories(cls):
         """初始化所有数据目录"""
-        for directory in [cls.RAW_DATA_DIR, cls.STOCK_POOL_DIR, cls.TRADE_LOG_DIR, 
+        # 遍历所有目录配置
+        for directory in [cls.RAW_DATA_DIR, cls.STOCK_POOL_DIR, cls.TRADE_LOG_DIR,
                          cls.ERROR_LOG_DIR, cls.NEW_STOCK_DIR, cls.ARBITRAGE_DIR, cls.STATUS_DIR]:
+            # 创建目录（如果不存在）
             os.makedirs(directory, exist_ok=True)
