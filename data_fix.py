@@ -371,26 +371,69 @@ def get_all_etf_list():
     返回:
         DataFrame: ETF列表，包含代码和名称
     """
-    # 尝试AkShare（主数据源）
+    # 尝试AkShare主接口（实时ETF列表）
     try:
         logger.info("尝试从AkShare获取ETF列表...")
+        # 使用 fund_etf_spot_em 获取实时ETF列表
+        df = ak.fund_etf_spot_em()
+        if not df.empty:
+            # 动态匹配列名
+            code_col = next((col for col in df.columns if '代码' in col), None)
+            name_col = next((col for col in df.columns if '名称' in col), None)
+            
+            if code_col and name_col:
+                # 确保代码列是字符串类型
+                df[code_col] = df[code_col].astype(str)
+                
+                # 创建ETF列表DataFrame
+                etf_list = pd.DataFrame()
+                etf_list['code'] = df[code_col].apply(
+                    lambda x: f"sh.{x}" if x.startswith(('5', '119')) else f"sz.{x}"
+                )
+                etf_list['name'] = df[name_col]
+                
+                # 过滤掉非ETF代码（如以其他数字开头的）
+                etf_list = etf_list[etf_list['code'].str.contains(r'^sh\.\d{6}|^sz\.\d{6}')]
+                
+                logger.info(f"从AkShare成功获取 {len(etf_list)} 只ETF")
+                return etf_list
+            else:
+                logger.error(f"AkShare返回数据缺少必要列: {df.columns.tolist()}")
+        else:
+            logger.warning("AkShare fund_etf_spot_em 返回空ETF列表")
+    except Exception as e:
+        logger.error(f"AkShare fund_etf_spot_em 获取ETF列表失败: {str(e)}")
+
+    # 尝试AkShare备用接口（历史ETF数据）
+    try:
+        logger.info("尝试从AkShare备用接口获取ETF列表...")
         df = ak.fund_etf_hist_sina(symbol="etf")
         if not df.empty:
-            # 检查数据完整性
-            if check_etf_list_completeness(df):
-                logger.info(f"从AkShare成功获取 {len(df)} 只ETF")
-                # 格式化ETF代码
-                df['code'] = df['基金代码'].apply(lambda x: f"sh.{x}" if x.startswith('5') else f"sz.{x}")
-                return df[['code', '基金简称']].rename(columns={'基金简称': 'name'})
+            # 动态匹配列名
+            code_col = next((col for col in df.columns if '基金代码' in col), None)
+            name_col = next((col for col in df.columns if '基金简称' in col), None)
+            
+            if code_col and name_col:
+                # 确保代码列是字符串类型
+                df[code_col] = df[code_col].astype(str)
+                
+                # 创建ETF列表DataFrame
+                etf_list = pd.DataFrame()
+                etf_list['code'] = df[code_col].apply(
+                    lambda x: f"sh.{x}" if x.startswith('5') else f"sz.{x}"
+                )
+                etf_list['name'] = df[name_col]
+                
+                logger.info(f"从AkShare备用接口成功获取 {len(etf_list)} 只ETF")
+                return etf_list
             else:
-                logger.warning("AkShare返回的ETF列表不完整，将尝试备用数据源...")
+                logger.error(f"AkShare备用接口返回数据缺少必要列: {df.columns.tolist()}")
         else:
-            logger.warning("AkShare返回空ETF列表")
-    
+            logger.warning("AkShare备用接口返回空ETF列表")
     except Exception as e:
-        logger.error(f"AkShare获取ETF列表失败: {str(e)}")
-    
-    # 尝试Baostock（备用数据源）
+        logger.error(f"AkShare备用接口获取ETF列表失败: {str(e)}")
+
+    # 尝试Baostock（使用兼容性更强的接口）
     try:
         logger.info("尝试从Baostock获取ETF列表...")
         lg = bs.login()
@@ -398,27 +441,55 @@ def get_all_etf_list():
             logger.warning(f"Baostock登录失败: {lg.error_msg}")
             raise Exception("Baostock登录失败")
         
-        # 获取ETF列表
-        rs = bs.query_etf_basic()
-        if rs.error_code != '0':
-            logger.error(f"Baostock查询ETF列表失败: {rs.error_msg}")
-            raise Exception("Baostock查询失败")
-        
-        # 转换为DataFrame
-        etf_list = []
-        while (rs.error_code == '0') & rs.next():
-            etf_list.append(rs.get_row_data())
-        
-        if etf_list:
-            df = pd.DataFrame(etf_list, columns=rs.fields)
-            # 格式化ETF代码
-            df['code'] = df['code'].apply(lambda x: f"sh.{x}" if x.startswith('5') else f"sz.{x}")
-            logger.info(f"从Baostock成功获取 {len(df)} 只ETF")
-            return df[['code', 'code_name']].rename(columns={'code_name': 'name'})
-    
+        # 使用 query_all_stock 获取所有股票，然后筛选ETF
+        rs = bs.query_all_stock()
+        if rs.error_code == '0':
+            data_list = []
+            while (rs.error_code == '0') & rs.next():
+                data_list.append(rs.get_row_data())
+            df = pd.DataFrame(data_list, columns=rs.fields)
+            if not df.empty:
+                # 筛选ETF类型证券（通常以51或15开头）
+                etf_list = df[df['code'].str.startswith(('51', '58', '15', '16'))]
+                if not etf_list.empty:
+                    etf_list = etf_list[['code', 'code_name']]
+                    etf_list.columns = ['code', 'name']
+                    # 添加sh./sz.前缀
+                    etf_list['code'] = etf_list['code'].apply(
+                        lambda x: f"sh.{x}" if x.startswith(('51', '58')) else f"sz.{x}"
+                    )
+                    logger.info(f"从Baostock成功获取 {len(etf_list)} 只ETF")
+                    return etf_list
+        else:
+            logger.error(f"Baostock查询失败: {rs.error_msg}")
     except Exception as e:
         logger.error(f"Baostock获取ETF列表失败: {str(e)}")
-    
+    finally:
+        try:
+            bs.logout()
+        except:
+            pass
+
+    # 尝试新浪财经备用接口
+    try:
+        logger.info("尝试从新浪财经获取ETF列表...")
+        url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getETFList"
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            data = json.loads(response.text)
+            if data:
+                etf_list = pd.DataFrame(data)
+                etf_list['code'] = etf_list['symbol'].apply(
+                    lambda x: f"sh.{x}" if x.startswith('5') else f"sz.{x}"
+                )
+                etf_list = etf_list[['code', 'name']]
+                logger.info(f"从新浪财经成功获取 {len(etf_list)} 只ETF")
+                return etf_list
+            else:
+                logger.warning("新浪财经返回空ETF列表")
+    except Exception as e:
+        logger.error(f"新浪财经获取ETF列表失败: {str(e)}")
+
     error_msg = "【数据错误】无法从所有数据源获取ETF列表"
     logger.error(error_msg)
     send_wecom_message(error_msg)
