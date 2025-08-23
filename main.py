@@ -17,12 +17,12 @@ from config import Config
 from logger import get_logger
 from bs4 import BeautifulSoup
 from data_fix import (
-                     get_beijing_time, is_trading_day, get_all_etf_list,
-                     get_new_stock_subscriptions, get_new_stock_listings,
-                     get_etf_data, crawl_etf_data, read_new_stock_pushed_flag, 
-                     mark_new_stock_info_pushed, read_listing_pushed_flag, 
-                     mark_listing_info_pushed, check_data_integrity, send_wecom_message,
-                     get_etf_iopv_data, get_market_sentiment)
+                      get_beijing_time, is_trading_day, get_all_etf_list,
+                      get_new_stock_subscriptions, get_new_stock_listings,
+                      get_etf_data, crawl_etf_data, read_new_stock_pushed_flag, 
+                      mark_new_stock_info_pushed, read_listing_pushed_flag, 
+                      mark_listing_info_pushed, check_data_integrity, send_wecom_message,
+                      get_etf_iopv_data, get_market_sentiment)
 
 # 确保所有数据目录存在
 Config.init_directories()
