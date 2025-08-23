@@ -48,8 +48,8 @@ on:
           - 'resume_crawl'				#【T17】手动断点续爬
 
 jobs:
-  # 通用测试任务处理程序 - 关键组件
-  run-test-tasks:
+  # 通用测试任务处理程序
+  run_test_tasks:
     if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     permissions:
@@ -100,7 +100,7 @@ jobs:
           echo "Test task execution completed successfully!"
 
   # 9:31 AM：爬取当天新股申购、新上市股票信息
-  crawl-new-stock:
+  crawl_new_stock:
     if: ${{ 
       (github.event_name == 'schedule' && contains(github.event.schedule, '31 1 * * 1-5'))
     }}
@@ -155,7 +155,7 @@ jobs:
           echo "New stock info execution completed successfully!"
 
   # 9:45 AM：推送新股申购和新上市股票信息
-  push-new-stock:
+  push_new_stock:
     if: ${{ 
       (github.event_name == 'schedule' && contains(github.event.schedule, '45 1 * * 1-5'))
     }}
@@ -209,7 +209,7 @@ jobs:
           echo "New stock info push execution completed successfully!"
 
   # 9:55 AM：爬取当天ETF交易数据
-  crawl-intraday:
+  crawl_intraday:
     if: ${{ 
       (github.event_name == 'schedule' && contains(github.event.schedule, '55 1 * * 1-5'))
     }}
@@ -262,7 +262,7 @@ jobs:
           echo "Intraday crawl execution completed successfully!"
 
   # 13:00 PM：套利扫描、股票池策略计算与推送
-  arbitrage-and-strategy:
+  arbitrage_and_strategy:
     if: ${{ 
       (github.event_name == 'schedule' && contains(github.event.schedule, '0 5 * * 1-5'))
     }}
@@ -331,7 +331,7 @@ jobs:
           echo "Arbitrage scan and strategy push execution completed successfully!"
 
   # 16:00 PM：爬取日线数据
-  crawl-daily:
+  crawl_daily:
     if: ${{ 
       (github.event_name == 'schedule' && contains(github.event.schedule, '0 8 * * 1-5'))
     }}
@@ -436,7 +436,7 @@ jobs:
           echo "Cleanup execution completed successfully!"
 
   # 断点续爬任务（每2小时执行一次，仅在非交易时间）
-  resume-crawl:
+  resume_crawl:
     if: ${{ 
       (github.event_name == 'schedule' && contains(github.event.schedule, '0 */2 * * *'))
     }}
@@ -447,3 +447,57 @@ jobs:
       pull-requests: write
       
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install akshare baostock
+
+      - name: Check if non-trading hours
+        id: check_hours
+        run: |
+          echo "Current UTC time: $(date -u '+%Y-%m-%d %H:%M:%S')"
+          echo "Current UTC hour: $(date -u '+%H')"
+          utc_hour=$(date -u '+%H')
+          beijing_hour=$(( (10#$utc_hour + 8) % 24 ))
+          echo "Current Beijing time: $(date '+%Y-%m-%d %H:%M:%S')"
+          echo "Beijing hour: $beijing_hour"
+          
+          # 判断是否在非交易时间 (18:00-09:00)
+          if (( beijing_hour >= 18 || beijing_hour < 9 )); then
+            echo "non_trading_hours=true" >> $GITHUB_OUTPUT
+          else
+            echo "non_trading_hours=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Run resume crawl (only in non-trading hours)
+        if: steps.check_hours.outputs.non_trading_hours == 'true'
+        env:
+          TASK: 'resume_crawl'
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+        run: |
+          python main.py
+          
+          # 提交数据变更到仓库
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add data/
+          git commit -m "自动续爬ETF数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
+          git push origin main || echo "Failed to push changes"
+      
+      - name: Skip resume crawl (during trading hours)
+        if: steps.check_hours.outputs.non_trading_hours != 'true'
+        run: |
+          echo "当前为交易时间 (北京时间 09:00-18:00)，跳过断点续爬任务"
+          echo "Beijing time: $(date '+%Y-%m-%d %H:%M:%S')"
