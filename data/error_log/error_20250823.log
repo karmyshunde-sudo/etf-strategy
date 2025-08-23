@@ -1,3 +1,5 @@
 2025-08-23 03:30:35,438 - data_fix - ERROR - 【数据错误】新浪财经获取2025-08-23新股信息失败: list indices must be integers or slices, not str
 2025-08-23 04:26:47,530 - data_fix - ERROR - 正常模式: AkShare获取新股信息失败: Response ended prematurely
 2025-08-23 04:26:48,059 - data_fix - ERROR - 正常模式: Baostock获取新股信息失败: module 'baostock' has no attribute 'query_stock_new'
+2025-08-23 05:27:39,542 - data_fix - ERROR - 正常模式: AkShare获取新股信息失败: stock_xgsglb_em() got an unexpected keyword argument 'timeout'
+2025-08-23 05:27:40,182 - data_fix - ERROR - 正常模式: Baostock获取新股信息失败: module 'baostock' has no attribute 'query_zh_a_xgsglb'
