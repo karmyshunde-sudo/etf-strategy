@@ -21,7 +21,7 @@ from data_fix import (
                      get_new_stock_subscriptions, get_new_stock_listings,
                      get_etf_data, crawl_etf_data, read_new_stock_pushed_flag, 
                      mark_new_stock_info_pushed, read_listing_pushed_flag, 
-                     mark_listing_info_pushed, send_wecom_message)
+                     mark_listing_info_pushed, check_data_integrity, send_wecom_message)
 
 # 确保所有数据目录存在
 Config.init_directories()
