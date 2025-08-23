@@ -5,3 +5,4 @@
 2025-08-23 05:27:40,182 - data_fix - ERROR - 正常模式: Baostock获取新股信息失败: module 'baostock' has no attribute 'query_zh_a_xgsglb'
 2025-08-23 06:01:19,114 - data_fix - ERROR - 正常模式: AkShare获取新股信息失败: stock_xgsglb_em() got an unexpected keyword argument 'headers'
 2025-08-23 06:01:20,295 - data_fix - ERROR - 正常模式: Baostock获取新股信息失败: module 'baostock' has no attribute 'query_stock_new'
+2025-08-23 08:28:28,635 - data_fix - ERROR - 测试模式: Baostock获取新上市交易信息失败: 'list_date'
