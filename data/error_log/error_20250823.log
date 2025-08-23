@@ -16,3 +16,23 @@
 2025-08-23 11:40:15,592 - data_fix - ERROR - 【数据错误】sh.588940日线数据缺失
 2025-08-23 11:40:16,576 - __main__ - ERROR - 【数据错误】【数据错误】sh.588940日线数据缺失
 2025-08-23 13:16:14,646 - __main__ - ERROR - 【系统错误】未知任务类型: resume_crawl
+2025-08-23 13:36:06,717 - data_fix - ERROR - 测试模式: AkShare获取可转债信息失败: module 'akshare' has no attribute 'bond_cb_issue_em'
+Traceback (most recent call last):
+  File "/home/runner/work/etf-strategy/etf-strategy/data_fix.py", line 188, in get_new_stock_subscriptions
+    cb_df = ak.bond_cb_issue_em()
+AttributeError: module 'akshare' has no attribute 'bond_cb_issue_em'
+2025-08-23 13:36:25,852 - data_fix - ERROR - 测试模式: AkShare获取可转债信息失败: module 'akshare' has no attribute 'bond_cb_issue_em'
+Traceback (most recent call last):
+  File "/home/runner/work/etf-strategy/etf-strategy/data_fix.py", line 188, in get_new_stock_subscriptions
+    cb_df = ak.bond_cb_issue_em()
+AttributeError: module 'akshare' has no attribute 'bond_cb_issue_em'
+2025-08-23 13:36:49,018 - data_fix - ERROR - 测试模式: AkShare获取可转债信息失败: module 'akshare' has no attribute 'bond_cb_issue_em'
+Traceback (most recent call last):
+  File "/home/runner/work/etf-strategy/etf-strategy/data_fix.py", line 188, in get_new_stock_subscriptions
+    cb_df = ak.bond_cb_issue_em()
+AttributeError: module 'akshare' has no attribute 'bond_cb_issue_em'
+2025-08-23 13:37:08,255 - data_fix - ERROR - 测试模式: AkShare获取可转债信息失败: module 'akshare' has no attribute 'bond_cb_issue_em'
+Traceback (most recent call last):
+  File "/home/runner/work/etf-strategy/etf-strategy/data_fix.py", line 188, in get_new_stock_subscriptions
+    cb_df = ak.bond_cb_issue_em()
+AttributeError: module 'akshare' has no attribute 'bond_cb_issue_em'
