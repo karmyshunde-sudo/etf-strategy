@@ -20,7 +20,7 @@ from retrying import retry
 Config.init_directories()
 
 logger = get_logger(__name__)
-logger.info(f"系统启动 - 使用AkShare版本: {akshare_version}")
+
 
 def get_beijing_time():
     """获取北京时间"""
