@@ -130,7 +130,7 @@ def get_new_stock_subscriptions(test=False):
             # 尝试AkShare（主数据源）
             try:
                 logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从AkShare获取新股申购信息...")
-                # 使用带超时的请求和重试机制
+                # 修正：移除headers参数，因为stock_xgsglb_em不接受该参数
                 df = akshare_retry(ak.stock_xgsglb_em)
                 
                 if not df.empty:
@@ -164,31 +164,84 @@ def get_new_stock_subscriptions(test=False):
                     logger.warning(f"Baostock登录失败: {lg.error_msg}")
                     raise Exception("Baostock登录失败")
                 
-                # 使用正确的接口获取新股数据
-                rs = bs.query_stock_new()
-                if rs.error_code != '0':
-                    logger.error(f"Baostock查询失败: {rs.error_msg}")
-                    raise Exception("Baostock查询失败")
+                # 修正：使用兼容多种版本的Baostock接口
+                try:
+                    # 尝试方法1: query_stock_new (较新版本)
+                    rs = bs.query_stock_new()
+                    if rs.error_code == '0':
+                        # 转换为DataFrame
+                        data_list = []
+                        while (rs.error_code == '0') & rs.next():
+                            data_list.append(rs.get_row_data())
+                        df = pd.DataFrame(data_list, columns=rs.fields)
+                        if not df.empty:
+                            # 标准化日期格式
+                            df['ipoDate'] = pd.to_datetime(df['ipoDate']).dt.strftime('%Y-%m-%d')
+                            df = df[df['ipoDate'] == date_str]
+                            if not df.empty and check_new_stock_completeness(df):
+                                logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(df)} 条新股申购信息")
+                                return df[['code', 'code_name', 'price', 'max_purchase', 'ipoDate']].rename(columns={
+                                    'code': '股票代码',
+                                    'code_name': '股票简称',
+                                    'price': '发行价格',
+                                    'max_purchase': '申购上限',
+                                    'ipoDate': '申购日期'
+                                })
+                except AttributeError:
+                    pass
                 
-                # 转换为DataFrame
-                data_list = []
-                while (rs.error_code == '0') & rs.next():
-                    data_list.append(rs.get_row_data())
-                df = pd.DataFrame(data_list, columns=rs.fields)
+                try:
+                    # 尝试方法2: query_all_stock (较旧版本)
+                    rs = bs.query_all_stock()
+                    if rs.error_code == '0':
+                        # 转换为DataFrame
+                        data_list = []
+                        while (rs.error_code == '0') & rs.next():
+                            data_list.append(rs.get_row_data())
+                        df = pd.DataFrame(data_list, columns=rs.fields)
+                        if not df.empty:
+                            # 标准化日期格式
+                            df['ipoDate'] = pd.to_datetime(df['ipoDate']).dt.strftime('%Y-%m-%d')
+                            df = df[df['ipoDate'] == date_str]
+                            if not df.empty and check_new_stock_completeness(df):
+                                logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(df)} 条新股申购信息")
+                                return df[['code', 'code_name', 'price', 'max_purchase', 'ipoDate']].rename(columns={
+                                    'code': '股票代码',
+                                    'code_name': '股票简称',
+                                    'price': '发行价格',
+                                    'max_purchase': '申购上限',
+                                    'ipoDate': '申购日期'
+                                })
+                except AttributeError:
+                    pass
                 
-                if not df.empty:
-                    # 标准化日期格式
-                    df['ipoDate'] = pd.to_datetime(df['ipoDate']).dt.strftime('%Y-%m-%d')
-                    df = df[df['ipoDate'] == date_str]
-                    if not df.empty and check_new_stock_completeness(df):
-                        logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(df)} 条新股申购信息")
-                        return df[['code', 'code_name', 'price', 'max_purchase', 'ipoDate']].rename(columns={
-                            'code': '股票代码',
-                            'code_name': '股票简称',
-                            'price': '发行价格',
-                            'max_purchase': '申购上限',
-                            'ipoDate': '申购日期'
-                        })
+                try:
+                    # 尝试方法3: query_stock_basic (某些版本)
+                    rs = bs.query_stock_basic()
+                    if rs.error_code == '0':
+                        # 转换为DataFrame
+                        data_list = []
+                        while (rs.error_code == '0') & rs.next():
+                            data_list.append(rs.get_row_data())
+                        df = pd.DataFrame(data_list, columns=rs.fields)
+                        if not df.empty:
+                            # 标准化日期格式
+                            df['ipoDate'] = pd.to_datetime(df['ipoDate']).dt.strftime('%Y-%m-%d')
+                            df = df[df['ipoDate'] == date_str]
+                            if not df.empty and check_new_stock_completeness(df):
+                                logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(df)} 条新股申购信息")
+                                return df[['code', 'code_name', 'price', 'max_purchase', 'ipoDate']].rename(columns={
+                                    'code': '股票代码',
+                                    'code_name': '股票简称',
+                                    'price': '发行价格',
+                                    'max_purchase': '申购上限',
+                                    'ipoDate': '申购日期'
+                                })
+                except AttributeError:
+                    pass
+                
+                # 如果所有方法都失败
+                logger.warning(f"{'测试模式' if test else '正常模式'}: Baostock获取新股信息失败：所有方法均不适用")
             except Exception as e:
                 logger.error(f"{'测试模式' if test else '正常模式'}: Baostock获取新股信息失败: {str(e)}")
             finally:
@@ -263,30 +316,57 @@ def get_new_stock_listings(test=False):
                     logger.warning(f"Baostock登录失败: {lg.error_msg}")
                     raise Exception("Baostock登录失败")
                 
-                # 获取所有股票信息
-                rs = bs.query_stock_basic()
-                if rs.error_code != '0':
-                    logger.error(f"Baostock查询失败: {rs.error_msg}")
-                    raise Exception("Baostock查询失败")
+                # 修正：使用兼容多种版本的Baostock接口
+                try:
+                    # 尝试方法1: query_stock_basic (较新版本)
+                    rs = bs.query_stock_basic()
+                    if rs.error_code == '0':
+                        # 转换为DataFrame
+                        data_list = []
+                        while (rs.error_code == '0') & rs.next():
+                            data_list.append(rs.get_row_data())
+                        df = pd.DataFrame(data_list, columns=rs.fields)
+                        if not df.empty:
+                            # 标准化日期格式
+                            df['list_date'] = pd.to_datetime(df['list_date']).dt.strftime('%Y-%m-%d')
+                            df = df[df['list_date'] == date_str]
+                            if not df.empty and check_new_listing_completeness(df):
+                                logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(df)} 条新上市交易信息")
+                                return df[['code', 'code_name', 'issue_price', 'list_date']].rename(columns={
+                                    'code': '股票代码',
+                                    'code_name': '股票简称',
+                                    'issue_price': '发行价格',
+                                    'list_date': '上市日期'
+                                })
+                except AttributeError:
+                    pass
                 
-                # 转换为DataFrame
-                data_list = []
-                while (rs.error_code == '0') & rs.next():
-                    data_list.append(rs.get_row_data())
-                df = pd.DataFrame(data_list, columns=rs.fields)
+                try:
+                    # 尝试方法2: query_all_stock (较旧版本)
+                    rs = bs.query_all_stock()
+                    if rs.error_code == '0':
+                        # 转换为DataFrame
+                        data_list = []
+                        while (rs.error_code == '0') & rs.next():
+                            data_list.append(rs.get_row_data())
+                        df = pd.DataFrame(data_list, columns=rs.fields)
+                        if not df.empty:
+                            # 标准化日期格式
+                            df['list_date'] = pd.to_datetime(df['list_date']).dt.strftime('%Y-%m-%d')
+                            df = df[df['list_date'] == date_str]
+                            if not df.empty and check_new_listing_completeness(df):
+                                logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(df)} 条新上市交易信息")
+                                return df[['code', 'code_name', 'issue_price', 'list_date']].rename(columns={
+                                    'code': '股票代码',
+                                    'code_name': '股票简称',
+                                    'issue_price': '发行价格',
+                                    'list_date': '上市日期'
+                                })
+                except AttributeError:
+                    pass
                 
-                if not df.empty:
-                    # 标准化日期格式
-                    df['list_date'] = pd.to_datetime(df['list_date']).dt.strftime('%Y-%m-%d')
-                    df = df[df['list_date'] == date_str]
-                    if not df.empty and check_new_listing_completeness(df):
-                        logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(df)} 条新上市交易信息")
-                        return df[['code', 'code_name', 'issue_price', 'list_date']].rename(columns={
-                            'code': '股票代码',
-                            'code_name': '股票简称',
-                            'issue_price': '发行价格',
-                            'list_date': '上市日期'
-                        })
+                # 如果所有方法都失败
+                logger.warning(f"{'测试模式' if test else '正常模式'}: Baostock获取新上市交易信息失败：所有方法均不适用")
             except Exception as e:
                 logger.error(f"{'测试模式' if test else '正常模式'}: Baostock获取新上市交易信息失败: {str(e)}")
             finally:
@@ -603,7 +683,7 @@ def save_to_cache(etf_code, data, data_type='daily'):
     """将ETF数据保存到缓存（增量保存）
     参数:
         etf_code: ETF代码
-        data: DataFrame数据
+         DataFrame数据
         data_type: 'daily'或'intraday'
     """
     if data is None or data.empty:
@@ -873,17 +953,17 @@ def send_wecom_message(message):
         return False
 
 def akshare_retry(func, *args, **kwargs):
-    """AkShare请求重试机制"""
+    """AkShare请求重试机制（修复headers参数问题）"""
     max_attempts = 3
     for attempt in range(max_attempts):
         try:
-            # 添加User-Agent头避免被拒绝
-            if 'headers' not in kwargs:
-                kwargs['headers'] = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                }
+            # 从kwargs中移除headers参数（如果存在）
+            # 因为某些AkShare函数不接受headers参数
+            original_kwargs = kwargs.copy()
+            if 'headers' in original_kwargs:
+                del original_kwargs['headers']
             
-            return func(*args, **kwargs)
+            return func(*args, **original_kwargs)
         except Exception as e:
             if attempt < max_attempts - 1:
                 wait_time = 2 ** attempt  # 指数退避
