@@ -131,7 +131,7 @@ def get_new_stock_subscriptions(test=False):
             try:
                 logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从AkShare获取新股申购信息...")
                 # 使用带超时的请求和重试机制
-                df = akshare_retry(ak.stock_xgsglb_em, timeout=20)
+                df = akshare_retry(ak.stock_xgsglb_em)
                 
                 if not df.empty:
                     # 动态匹配日期列
@@ -159,14 +159,13 @@ def get_new_stock_subscriptions(test=False):
             # 尝试Baostock（备用数据源）
             try:
                 logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从Baostock获取新股申购信息...")
-                # 使用正确的接口
                 lg = bs.login()
                 if lg.error_code != '0':
                     logger.warning(f"Baostock登录失败: {lg.error_msg}")
                     raise Exception("Baostock登录失败")
                 
                 # 使用正确的接口获取新股数据
-                rs = bs.query_zh_a_xgsglb()
+                rs = bs.query_stock_new()
                 if rs.error_code != '0':
                     logger.error(f"Baostock查询失败: {rs.error_msg}")
                     raise Exception("Baostock查询失败")
@@ -392,12 +391,12 @@ def get_etf_data(etf_code, data_type='daily'):
         
         # 使用最新确认可用的ETF历史数据接口
         logger.info(f"尝试使用fund_etf_hist_em接口获取{etf_code}数据...")
-        df = akshare_retry(ak.fund_etf_hist_em, symbol=pure_code, timeout=20)
+        df = akshare_retry(ak.fund_etf_hist_em, symbol=pure_code)
         if df.empty:
             logger.warning(f"AkShare fund_etf_hist_em返回空数据 {etf_code}")
             # 尝试备用接口
             logger.info(f"尝试使用fund_etf_hist_sina接口获取{etf_code}数据...")
-            df = akshare_retry(ak.fund_etf_hist_sina, symbol=pure_code, timeout=20)
+            df = akshare_retry(ak.fund_etf_hist_sina, symbol=pure_code)
             if df.empty:
                 logger.warning(f"AkShare返回空数据 {etf_code}")
         
@@ -872,10 +871,6 @@ def send_wecom_message(message):
     except Exception as e:
         logger.error(f"发送企业微信消息时出错: {str(e)}")
         return False
-
-# =====================
-# 辅助函数
-# =====================
 
 def akshare_retry(func, *args, **kwargs):
     """AkShare请求重试机制"""
