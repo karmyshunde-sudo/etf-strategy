@@ -36,3 +36,7 @@ Traceback (most recent call last):
   File "/home/runner/work/etf-strategy/etf-strategy/data_fix.py", line 188, in get_new_stock_subscriptions
     cb_df = ak.bond_cb_issue_em()
 AttributeError: module 'akshare' has no attribute 'bond_cb_issue_em'
+2025-08-23 14:14:37,036 - data_fix - ERROR - AkShare版本过旧，不支持可转债数据接口
+2025-08-23 14:14:52,995 - data_fix - ERROR - AkShare版本过旧，不支持可转债数据接口
+2025-08-23 14:15:10,688 - data_fix - ERROR - AkShare版本过旧，不支持可转债数据接口
+2025-08-23 14:15:33,313 - data_fix - ERROR - AkShare版本过旧，不支持可转债数据接口
