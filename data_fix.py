@@ -21,6 +21,14 @@ Config.init_directories()
 
 logger = get_logger(__name__)
 
+# 获取AkShare版本（关键修复：确保总是定义）
+try:
+    akshare_version = ak.__version__
+except Exception as e:
+    # 无法使用logger，因为logger可能还未初始化
+    print(f"警告: 无法获取AkShare版本信息: {str(e)}")
+    akshare_version = "unknown"
+
 
 def get_beijing_time():
     """获取北京时间"""
