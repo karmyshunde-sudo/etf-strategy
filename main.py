@@ -22,7 +22,6 @@ from data_fix import (
                      get_etf_data, check_data_integrity, crawl_etf_data,
                      read_new_stock_pushed_flag, mark_new_stock_info_pushed,
                      read_listing_pushed_flag, mark_listing_info_pushed,
-                     get_test_new_stock_subscriptions, get_test_new_stock_listings,
                      send_wecom_message)
 
 # 确保所有数据目录存在
