@@ -292,18 +292,32 @@ def get_new_stock_subscriptions(test=False):
                             df['ipoDate'] = pd.to_datetime(df['ipoDate']).dt.strftime('%Y-%m-%d')
                             df = df[df['ipoDate'] == date_str]
                             if not df.empty:
+                                # 关键修复：创建新的DataFrame，填充缺失字段
+                                result_df = pd.DataFrame()
+                                result_df['股票代码'] = df['code']
+                                result_df['股票简称'] = df['code_name']
+                                # 填充缺失字段（如果不存在）
+                                result_df['发行价格'] = df.get('price', [None] * len(df))
+                                result_df['申购上限'] = df.get('max_purchase', [None] * len(df))
+                                result_df['申购日期'] = df['ipoDate']
+                                result_df['类型'] = '股票'
+                                
                                 # 检查数据完整性
-                                if check_new_stock_completeness(df):
-                                    logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(df)} 条新股申购信息")
-                                    # 添加类型标识
-                                    df['类型'] = '股票'
-                                    return df[['code', 'code_name', 'price', 'max_purchase', 'ipoDate', '类型']].rename(columns={
-                                        'code': '股票代码',
-                                        'code_name': '股票简称',
-                                        'price': '发行价格',
-                                        'max_purchase': '申购上限',
-                                        'ipoDate': '申购日期'
-                                    })
+                                if check_new_stock_completeness(result_df):
+                                    logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(result_df)} 条新股申购信息")
+                                    return result_df
+                                else:
+                                    # 关键修复：即使数据不完整，也返回可用数据
+                                    logger.warning(f"{'测试模式' if test else '正常模式'}: Baostock返回的数据不完整，但将返回可用字段")
+                                    # 创建最小必要字段的DataFrame
+                                    minimal_df = pd.DataFrame()
+                                    minimal_df['股票代码'] = df['code']
+                                    minimal_df['股票简称'] = df['code_name']
+                                    minimal_df['申购日期'] = df['ipoDate']
+                                    minimal_df['发行价格'] = None
+                                    minimal_df['申购上限'] = None
+                                    minimal_df['类型'] = '股票'
+                                    return minimal_df
                 except AttributeError:
                     pass
                 
@@ -326,18 +340,32 @@ def get_new_stock_subscriptions(test=False):
                             df['ipoDate'] = pd.to_datetime(df['ipoDate']).dt.strftime('%Y-%m-%d')
                             df = df[df['ipoDate'] == date_str]
                             if not df.empty:
+                                # 关键修复：创建新的DataFrame，填充缺失字段
+                                result_df = pd.DataFrame()
+                                result_df['股票代码'] = df['code']
+                                result_df['股票简称'] = df['code_name']
+                                # 填充缺失字段（如果不存在）
+                                result_df['发行价格'] = df.get('price', [None] * len(df))
+                                result_df['申购上限'] = df.get('max_purchase', [None] * len(df))
+                                result_df['申购日期'] = df['ipoDate']
+                                result_df['类型'] = '股票'
+                                
                                 # 检查数据完整性
-                                if check_new_stock_completeness(df):
-                                    logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(df)} 条新股申购信息")
-                                    # 添加类型标识
-                                    df['类型'] = '股票'
-                                    return df[['code', 'code_name', 'price', 'max_purchase', 'ipoDate', '类型']].rename(columns={
-                                        'code': '股票代码',
-                                        'code_name': '股票简称',
-                                        'price': '发行价格',
-                                        'max_purchase': '申购上限',
-                                        'ipoDate': '申购日期'
-                                    })
+                                if check_new_stock_completeness(result_df):
+                                    logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(result_df)} 条新股申购信息")
+                                    return result_df
+                                else:
+                                    # 关键修复：即使数据不完整，也返回可用数据
+                                    logger.warning(f"{'测试模式' if test else '正常模式'}: Baostock返回的数据不完整，但将返回可用字段")
+                                    # 创建最小必要字段的DataFrame
+                                    minimal_df = pd.DataFrame()
+                                    minimal_df['股票代码'] = df['code']
+                                    minimal_df['股票简称'] = df['code_name']
+                                    minimal_df['申购日期'] = df['ipoDate']
+                                    minimal_df['发行价格'] = None
+                                    minimal_df['申购上限'] = None
+                                    minimal_df['类型'] = '股票'
+                                    return minimal_df
                 except AttributeError:
                     pass
             except Exception as e:
