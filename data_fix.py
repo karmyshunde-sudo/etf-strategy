@@ -953,3 +953,43 @@ def akshare_retry(func, *args, **kwargs):
                 time.sleep(wait_time)
             else:
                 raise
+
+def check_data_integrity():
+    """检查全局数据完整性
+    返回:
+        str: 错误信息，None表示数据完整"""
+    # 检查ETF数据
+    etf_list = get_all_etf_list()
+    if etf_list is None or etf_list.empty:
+        error_msg = "【数据错误】ETF列表获取失败"
+        logger.error(error_msg)
+        send_wecom_message(error_msg)
+        return error_msg
+    
+    # 检查每只ETF的最新数据
+    today = datetime.datetime.now().date()
+    for _, etf in etf_list.iterrows():
+        etf_code = etf['code']
+        data = load_from_cache(etf_code, 'daily')
+        if data is None or data.empty:
+            error_msg = f"【数据错误】{etf_code}日线数据缺失"
+            logger.error(error_msg)
+            send_wecom_message(error_msg)
+            return error_msg
+        
+        # 检查数据是否足够新
+        last_date = data['date'].max().date()
+        if (today - last_date).days > Config.MAX_DATA_AGE:
+            error_msg = f"【数据错误】{etf_code}日线数据过期（最新日期: {last_date}）"
+            logger.error(error_msg)
+            send_wecom_message(error_msg)
+            return error_msg
+        
+        # 检查数据量是否足够
+        if len(data) < Config.MIN_DATA_DAYS:
+            error_msg = f"【数据错误】{etf_code}日线数据不足（仅{len(data)}天）"
+            logger.error(error_msg)
+            send_wecom_message(error_msg)
+            return error_msg
+    
+    return None
