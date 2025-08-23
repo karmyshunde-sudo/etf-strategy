@@ -279,7 +279,7 @@ def push_new_stock_info(test=False):
         logger.info("今天已经推送过新股信息，跳过")
         return True
     
-    new_stocks = get_new_stock_subscriptions()
+    new_stocks = get_new_stock_subscriptions(test=test)
     if new_stocks is None or new_stocks.empty:
         message = "今天没有新股、新债、新债券可认购"
     else:
@@ -307,7 +307,7 @@ def push_listing_info(test=False):
         logger.info("今天已经推送过新上市交易信息，跳过")
         return True
     
-    new_listings = get_new_stock_listings()
+    new_listings = get_new_stock_listings(test=test)
     if new_listings is None or new_listings.empty:
         message = "今天没有新上市股票、可转债、债券可供交易"
     else:
