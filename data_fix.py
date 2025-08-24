@@ -151,7 +151,10 @@ def check_etf_list_completeness(df):
     return False
 
 def get_new_stock_subscriptions(test=False):
-    """获取新股申购信息（只严格检查关键字段，保留所有已有字段）"""
+    """获取新股申购信息
+    参数:
+        test: 是否为测试模式（测试模式下若当天无数据则回溯21天）
+    """
     try:
         today = get_beijing_time().strftime('%Y-%m-%d')
         logger.info(f"{'测试模式' if test else '正常模式'}: 尝试获取 {today} 的新股申购信息...")
@@ -377,6 +380,38 @@ def get_new_stock_subscriptions(test=False):
                     bs.logout()
                 except:
                     pass
+            
+            # 尝试新浪财经（备用数据源）
+            try:
+                logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从新浪财经获取新股申购信息...")
+                sina_url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData?page=1&num=100&sort=symbol&asc=1&node=iponew&symbol=&_s_r_a=page"
+                response = requests.get(sina_url, timeout=15)
+                response.raise_for_status()
+                data = response.json()
+                new_stocks = []
+                for item in data:
+                    code = item.get('申购代码', '')
+                    name = item.get('股票简称', '')
+                    issue_price = item.get('发行价格', '')
+                    max_purchase = item.get('申购上限', '')
+                    publish_date = item.get('申购日期', '')
+                    
+                    if publish_date == date_str:
+                        new_stocks.append({
+                            '股票代码': code,
+                            '股票简称': name,
+                            '发行价格': issue_price,
+                            '申购上限': max_purchase,
+                            '申购日期': publish_date
+                        })
+                
+                if new_stocks:
+                    logger.info(f"{'测试模式' if test else '正常模式'}: 从新浪财经成功获取 {len(new_stocks)} 条新股申购信息")
+                    sina_df = pd.DataFrame(new_stocks)
+                    sina_df['类型'] = '股票'
+                    return sina_df
+            except Exception as e:
+                logger.error(f"{'测试模式' if test else '正常模式'}: 新浪财经获取新股信息失败: {str(e)}", exc_info=True)
         
         logger.info(f"{'测试模式' if test else '正常模式'}: 未找到新股数据")
         return pd.DataFrame()
@@ -386,7 +421,6 @@ def get_new_stock_subscriptions(test=False):
         logger.error(error_msg, exc_info=True)
         send_wecom_message(error_msg)
         return pd.DataFrame()
-
 
 def get_new_stock_listings(test=False):
     """获取新上市交易的新股信息（只严格检查关键字段，保留所有已有字段）"""
