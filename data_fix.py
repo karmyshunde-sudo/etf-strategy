@@ -503,6 +503,16 @@ def get_etf_data(etf_code, data_type='daily'):
     send_wecom_message(error_msg)
     return None
 
+def get_market_sentiment():
+    """获取市场情绪指标（示例实现）"""
+    # 示例：随机生成情绪评分（实际应替换为真实数据源）
+    sentiment_score = random.uniform(0, 100)
+    return {
+        "sentiment_score": sentiment_score,
+        "market_trend": "bullish" if sentiment_score > 50 else "bearish",
+        "volatility_index": random.uniform(10, 30)
+    }
+
 def get_etf_iopv_data(etf_code):
     """获取ETF净值数据"""
     try:
