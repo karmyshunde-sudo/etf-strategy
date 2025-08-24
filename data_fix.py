@@ -117,6 +117,21 @@ def check_new_listing_completeness(df):
     return True
 
 def get_cache_path(etf_code, data_type='daily'):
+    """生成指定ETF和数据类型的缓存文件路径"""
+    # 确保etf_code是标准化格式
+    if not etf_code.startswith(('sh.', 'sz.')):
+        if etf_code.startswith(('5', '119')):
+            etf_code = f"sh.{etf_code}"
+        else:
+            etf_code = f"sz.{etf_code}"
+    
+    # 正确拼接路径（移除多余的 'etf-strategy' 目录）
+    cache_dir = os.path.join(Config.RAW_DATA_DIR, 'cache', data_type)
+    os.makedirs(cache_dir, exist_ok=True)
+    return os.path.join(cache_dir, f'{etf_code}_{data_type}.csv')
+
+"""
+def get_cache_path(etf_code, data_type='daily'):
     """生成指定ETF和数据类型的缓存文件路径
     参数:
         etf_code: ETF代码
@@ -135,6 +150,8 @@ def get_cache_path(etf_code, data_type='daily'):
     os.makedirs(cache_dir, exist_ok=True)
     # 修复：将data_type添加到文件名中
     return os.path.join(cache_dir, f'{etf_code}_{data_type}.csv')
+"""
+
 
 def load_from_cache(etf_code, data_type='daily', days=30):
     """从缓存加载ETF数据
