@@ -5,7 +5,8 @@ class Config:
     """全局配置类，所有配置参数通过类属性访问"""
     
     # 获取项目基础目录
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    # BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     
     # 原始数据存储目录
     RAW_DATA_DIR = os.path.join(BASE_DIR, 'data', 'raw')
