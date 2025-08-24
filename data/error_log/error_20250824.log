@@ -23,3 +23,33 @@
 2025-08-24 02:19:29,424 - data_fix - ERROR - AkShare版本过旧，不支持可转债数据接口
 2025-08-24 02:19:50,430 - data_fix - ERROR - AkShare版本过旧，不支持可转债数据接口
 2025-08-24 02:20:44,596 - data_fix - ERROR - AkShare版本过旧，不支持可转债数据接口
+2025-08-24 02:39:41,342 - data_fix - ERROR - AkShare 不支持任何可转债接口
+2025-08-24 02:39:42,125 - data_fix - ERROR - 测试模式: Baostock获取新股信息失败: module 'baostock' has no attribute 'query_stock_new'
+Traceback (most recent call last):
+  File "/home/runner/work/etf-strategy/etf-strategy/data_fix.py", line 262, in get_new_stock_subscriptions
+    rs = bs.query_stock_new()
+AttributeError: module 'baostock' has no attribute 'query_stock_new'
+2025-08-24 02:40:11,689 - data_fix - ERROR - AkShare 不支持任何可转债接口
+2025-08-24 02:40:12,137 - data_fix - ERROR - 测试模式: Baostock获取新股信息失败: module 'baostock' has no attribute 'query_stock_new'
+Traceback (most recent call last):
+  File "/home/runner/work/etf-strategy/etf-strategy/data_fix.py", line 262, in get_new_stock_subscriptions
+    rs = bs.query_stock_new()
+AttributeError: module 'baostock' has no attribute 'query_stock_new'
+2025-08-24 02:40:27,984 - data_fix - ERROR - AkShare 不支持任何可转债接口
+2025-08-24 02:40:28,442 - data_fix - ERROR - 测试模式: Baostock获取新股信息失败: module 'baostock' has no attribute 'query_stock_new'
+Traceback (most recent call last):
+  File "/home/runner/work/etf-strategy/etf-strategy/data_fix.py", line 262, in get_new_stock_subscriptions
+    rs = bs.query_stock_new()
+AttributeError: module 'baostock' has no attribute 'query_stock_new'
+2025-08-24 02:41:01,935 - data_fix - ERROR - AkShare 不支持任何可转债接口
+2025-08-24 02:41:02,388 - data_fix - ERROR - 测试模式: Baostock获取新股信息失败: module 'baostock' has no attribute 'query_stock_new'
+Traceback (most recent call last):
+  File "/home/runner/work/etf-strategy/etf-strategy/data_fix.py", line 262, in get_new_stock_subscriptions
+    rs = bs.query_stock_new()
+AttributeError: module 'baostock' has no attribute 'query_stock_new'
+2025-08-24 02:41:35,004 - data_fix - ERROR - AkShare 不支持任何可转债接口
+2025-08-24 02:41:35,454 - data_fix - ERROR - 测试模式: Baostock获取新股信息失败: module 'baostock' has no attribute 'query_stock_new'
+Traceback (most recent call last):
+  File "/home/runner/work/etf-strategy/etf-strategy/data_fix.py", line 262, in get_new_stock_subscriptions
+    rs = bs.query_stock_new()
+AttributeError: module 'baostock' has no attribute 'query_stock_new'
