@@ -88,3 +88,5 @@ Traceback (most recent call last):
   File "/home/runner/work/etf-strategy/etf-strategy/data_fix.py", line 298, in get_new_stock_subscriptions
     raise Exception("Baostock 接口不支持")
 Exception: Baostock 接口不支持
+2025-08-24 03:03:15,167 - data_fix - ERROR - AkShare版本过旧，不支持可转债数据接口
+2025-08-24 03:03:28,147 - data_fix - ERROR - AkShare版本过旧，不支持可转债数据接口
