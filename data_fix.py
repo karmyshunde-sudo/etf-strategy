@@ -97,25 +97,31 @@ def check_data_completeness(df, required_columns=None, min_records=5):
     return True
 
 def check_new_stock_completeness(df):
-    """检查新股数据完整性（改进版）"""
+    """检查新股数据完整性（只严格检查关键字段）"""
     if df is None or df.empty:
         logger.warning("新股数据为空")
         return False
     
-    # 关键字段（必须存在）
+    # 只严格检查关键字段
     critical_columns = ['股票代码', '股票简称', '申购日期']
-    # 可选字段（缺失时可用None填充）
-    optional_columns = ['发行价格', '申购上限']
-    
-    # 检查关键字段
     missing_critical = [col for col in critical_columns if col not in df.columns]
     if missing_critical:
         logger.warning(f"新股数据缺少关键字段: {missing_critical}")
         return False
     
-    # 检查数据量
-    if len(df) < 1:
-        logger.warning("新股数据量不足")
+    return True
+
+def check_new_listing_completeness(df):
+    """检查新上市交易数据完整性（只严格检查关键字段）"""
+    if df is None or df.empty:
+        logger.warning("新上市交易数据为空")
+        return False
+    
+    # 只严格检查关键字段
+    critical_columns = ['股票代码', '股票简称', '上市日期']
+    missing_critical = [col for col in critical_columns if col not in df.columns]
+    if missing_critical:
+        logger.warning(f"新上市交易数据缺少关键字段: {missing_critical}")
         return False
     
     return True
@@ -123,11 +129,6 @@ def check_new_stock_completeness(df):
 def check_convertible_bond_completeness(df):
     """检查可转债数据完整性"""
     required_columns = ['债券代码', '债券简称', '转股价格', '申购上限', '申购日期']
-    return check_data_completeness(df, required_columns, min_records=1)
-
-def check_new_listing_completeness(df):
-    """检查新上市交易数据完整性"""
-    required_columns = ['股票代码', '股票简称', '发行价格', '上市日期']
     return check_data_completeness(df, required_columns, min_records=1)
 
 def check_etf_list_completeness(df):
@@ -150,10 +151,7 @@ def check_etf_list_completeness(df):
     return False
 
 def get_new_stock_subscriptions(test=False):
-    """获取新股申购信息
-    参数:
-        test: 是否为测试模式（测试模式下若当天无数据则回溯21天）
-    """
+    """获取新股申购信息（只严格检查关键字段，保留所有已有字段）"""
     try:
         today = get_beijing_time().strftime('%Y-%m-%d')
         logger.info(f"{'测试模式' if test else '正常模式'}: 尝试获取 {today} 的新股申购信息...")
@@ -179,7 +177,7 @@ def get_new_stock_subscriptions(test=False):
                 ak_df = akshare_retry(ak.stock_xgsglb_em)
                 
                 if not ak_df.empty:
-                    # 仅记录列名信息，不显示数据内容
+                    # 仅记录列名信息
                     logger.info(f"AkShare返回新股数据列数: {len(ak_df.columns)}")
                     logger.info(f"AkShare返回新股数据记录数: {len(ak_df)}")
                     logger.info(f"AkShare返回新股数据列名: {ak_df.columns.tolist()}")
@@ -199,7 +197,7 @@ def get_new_stock_subscriptions(test=False):
                         # 筛选目标日期数据
                         ak_df = ak_df[ak_df[date_col] == date_str]
                         if not ak_df.empty:
-                            # 检查关键字段是否完整
+                            # 只严格检查关键字段
                             if check_new_stock_completeness(ak_df):
                                 logger.info(f"{'测试模式' if test else '正常模式'}: 从AkShare成功获取 {len(ak_df)} 条新股申购信息")
                                 # 确保列名标准化
@@ -207,11 +205,7 @@ def get_new_stock_subscriptions(test=False):
                                     ak_df['申购日期'] = date_str
                                 # 添加类型标识
                                 ak_df['类型'] = '股票'
-                                # 填充可选字段（如果缺失）
-                                for col in ['发行价格', '申购上限']:
-                                    if col not in ak_df.columns:
-                                        ak_df[col] = None
-                                return ak_df[['股票代码', '股票简称', '发行价格', '申购上限', '申购日期', '类型']]
+                                return ak_df  # 返回完整数据，不丢弃任何字段
                             else:
                                 logger.warning(f"{'测试模式' if test else '正常模式'}: AkShare返回的新股数据缺少关键字段，将尝试备用数据源...")
             except Exception as e:
@@ -246,7 +240,7 @@ def get_new_stock_subscriptions(test=False):
                             logger.error("AkShare版本过旧，不支持可转债数据接口")
                 
                 if cb_df is not None and not cb_df.empty:
-                    # 仅记录列名信息，不显示数据内容
+                    # 仅记录列名信息
                     logger.info(f"AkShare返回可转债数据列数: {len(cb_df.columns)}")
                     logger.info(f"AkShare返回可转债数据记录数: {len(cb_df)}")
                     logger.info(f"AkShare返回可转债数据列名: {cb_df.columns.tolist()}")
@@ -266,7 +260,7 @@ def get_new_stock_subscriptions(test=False):
                         # 筛选目标日期数据
                         cb_df = cb_df[cb_df[date_col] == date_str]
                         if not cb_df.empty:
-                            # 检查关键字段是否完整
+                            # 只严格检查关键字段
                             if '债券代码' in cb_df.columns and '债券简称' in cb_df.columns:
                                 logger.info(f"{'测试模式' if test else '正常模式'}: 从AkShare成功获取 {len(cb_df)} 条可转债申购信息")
                                 # 重命名列以匹配股票格式
@@ -277,11 +271,7 @@ def get_new_stock_subscriptions(test=False):
                                 })
                                 # 添加类型标识
                                 cb_df['类型'] = '可转债'
-                                # 填充可选字段（如果缺失）
-                                for col in ['发行价格', '申购上限']:
-                                    if col not in cb_df.columns:
-                                        cb_df[col] = None
-                                return cb_df[['股票代码', '股票简称', '发行价格', '申购上限', '申购日期', '类型']]
+                                return cb_df  # 返回完整数据，不丢弃任何字段
                             else:
                                 logger.warning(f"{'测试模式' if test else '正常模式'}: AkShare返回的可转债数据缺少关键字段")
             except Exception as e:
@@ -307,7 +297,7 @@ def get_new_stock_subscriptions(test=False):
                             data_list.append(rs.get_row_data())
                         bs_df = pd.DataFrame(data_list, columns=rs.fields)
                         if not bs_df.empty:
-                            # 仅记录列名信息，不显示数据内容
+                            # 仅记录列名信息
                             logger.info(f"Baostock返回新股数据列数: {len(bs_df.columns)}")
                             logger.info(f"Baostock返回新股数据记录数: {len(bs_df)}")
                             logger.info(f"Baostock返回新股数据列名: {bs_df.columns.tolist()}")
@@ -316,20 +306,24 @@ def get_new_stock_subscriptions(test=False):
                             bs_df['ipoDate'] = pd.to_datetime(bs_df['ipoDate']).dt.strftime('%Y-%m-%d')
                             bs_df = bs_df[bs_df['ipoDate'] == date_str]
                             if not bs_df.empty:
-                                # 创建新的DataFrame，填充缺失字段
+                                # 创建新的DataFrame，但保留所有字段
                                 result_df = pd.DataFrame()
                                 result_df['股票代码'] = bs_df['code']
                                 result_df['股票简称'] = bs_df['code_name']
-                                # 填充缺失字段（如果不存在）
-                                result_df['发行价格'] = bs_df.get('price', [None] * len(bs_df))
-                                result_df['申购上限'] = bs_df.get('max_purchase', [None] * len(bs_df))
                                 result_df['申购日期'] = bs_df['ipoDate']
+                                
+                                # 复制其他所有字段
+                                for col in bs_df.columns:
+                                    if col not in ['code', 'code_name', 'ipoDate'] and col not in result_df.columns:
+                                        result_df[col] = bs_df[col]
+                                
+                                # 添加类型标识
                                 result_df['类型'] = '股票'
                                 
-                                # 检查关键字段是否完整
+                                # 只严格检查关键字段
                                 if check_new_stock_completeness(result_df):
                                     logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(result_df)} 条新股申购信息")
-                                    return result_df
+                                    return result_df  # 返回完整数据，不丢弃任何字段
                                 else:
                                     logger.warning(f"{'测试模式' if test else '正常模式'}: Baostock返回的数据缺少关键字段，跳过此数据源")
                 except AttributeError:
@@ -345,7 +339,7 @@ def get_new_stock_subscriptions(test=False):
                             data_list.append(rs.get_row_data())
                         bs_df = pd.DataFrame(data_list, columns=rs.fields)
                         if not bs_df.empty:
-                            # 仅记录列名信息，不显示数据内容
+                            # 仅记录列名信息
                             logger.info(f"Baostock返回新股数据列数: {len(bs_df.columns)}")
                             logger.info(f"Baostock返回新股数据记录数: {len(bs_df)}")
                             logger.info(f"Baostock返回新股数据列名: {bs_df.columns.tolist()}")
@@ -354,20 +348,24 @@ def get_new_stock_subscriptions(test=False):
                             bs_df['ipoDate'] = pd.to_datetime(bs_df['ipoDate']).dt.strftime('%Y-%m-%d')
                             bs_df = bs_df[bs_df['ipoDate'] == date_str]
                             if not bs_df.empty:
-                                # 创建新的DataFrame，填充缺失字段
+                                # 创建新的DataFrame，但保留所有字段
                                 result_df = pd.DataFrame()
                                 result_df['股票代码'] = bs_df['code']
                                 result_df['股票简称'] = bs_df['code_name']
-                                # 填充缺失字段（如果不存在）
-                                result_df['发行价格'] = bs_df.get('price', [None] * len(bs_df))
-                                result_df['申购上限'] = bs_df.get('max_purchase', [None] * len(bs_df))
                                 result_df['申购日期'] = bs_df['ipoDate']
+                                
+                                # 复制其他所有字段
+                                for col in bs_df.columns:
+                                    if col not in ['code', 'code_name', 'ipoDate'] and col not in result_df.columns:
+                                        result_df[col] = bs_df[col]
+                                
+                                # 添加类型标识
                                 result_df['类型'] = '股票'
                                 
-                                # 检查关键字段是否完整
+                                # 只严格检查关键字段
                                 if check_new_stock_completeness(result_df):
                                     logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(result_df)} 条新股申购信息")
-                                    return result_df
+                                    return result_df  # 返回完整数据，不丢弃任何字段
                                 else:
                                     logger.warning(f"{'测试模式' if test else '正常模式'}: Baostock返回的数据缺少关键字段，跳过此数据源")
                 except AttributeError:
@@ -389,11 +387,9 @@ def get_new_stock_subscriptions(test=False):
         send_wecom_message(error_msg)
         return pd.DataFrame()
 
+
 def get_new_stock_listings(test=False):
-    """获取新上市交易的新股信息
-    参数:
-        test: 是否为测试模式（测试模式下若当天无数据则回溯21天）
-    """
+    """获取新上市交易的新股信息（只严格检查关键字段，保留所有已有字段）"""
     try:
         today = get_beijing_time().strftime('%Y-%m-%d')
         logger.info(f"{'测试模式' if test else '正常模式'}: 尝试获取 {today} 的新上市交易信息...")
@@ -412,40 +408,41 @@ def get_new_stock_listings(test=False):
             logger.info(f"{'测试模式' if test else '正常模式'}: 尝试获取 {date_str} 的新上市交易数据")
             
             # 尝试AkShare（主数据源）
+            ak_df = None
             try:
                 logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从AkShare获取新上市交易信息...")
                 logger.info(f"AkShare接口: ak.stock_xgsglb_em()")
-                df = ak.stock_xgsglb_em()
-                if not df.empty:
-                    # 仅记录列名信息，不显示数据内容
-                    logger.info(f"AkShare返回新上市交易数据列数: {len(df.columns)}")
-                    logger.info(f"AkShare返回新上市交易数据记录数: {len(df)}")
-                    logger.info(f"AkShare返回新上市交易数据列名: {df.columns.tolist()}")
+                ak_df = ak.stock_xgsglb_em()
+                if not ak_df.empty:
+                    # 仅记录列名信息
+                    logger.info(f"AkShare返回新上市交易数据列数: {len(ak_df.columns)}")
+                    logger.info(f"AkShare返回新上市交易数据记录数: {len(ak_df)}")
+                    logger.info(f"AkShare返回新上市交易数据列名: {ak_df.columns.tolist()}")
                     
                     # 动态匹配上市日期列
-                    listing_date_col = next((col for col in df.columns 
+                    listing_date_col = next((col for col in ak_df.columns 
                                            if any(kw in col.lower() for kw in ['上市日期', 'listing_date'])), None)
                     
-                    if listing_date_col and listing_date_col in df.columns:
+                    if listing_date_col and listing_date_col in ak_df.columns:
                         # 确保日期列是正确格式
-                        if not pd.api.types.is_datetime64_any_dtype(df[listing_date_col]):
+                        if not pd.api.types.is_datetime64_any_dtype(ak_df[listing_date_col]):
                             try:
-                                df[listing_date_col] = pd.to_datetime(df[listing_date_col]).dt.strftime('%Y-%m-%d')
+                                ak_df[listing_date_col] = pd.to_datetime(ak_df[listing_date_col]).dt.strftime('%Y-%m-%d')
                             except:
                                 pass
                         
                         # 筛选目标日期数据
-                        df = df[df[listing_date_col] == date_str]
-                        if not df.empty:
-                            # 检查数据完整性
-                            if check_new_listing_completeness(df):
-                                logger.info(f"{'测试模式' if test else '正常模式'}: 从AkShare成功获取 {len(df)} 条新上市交易信息")
+                        ak_df = ak_df[ak_df[listing_date_col] == date_str]
+                        if not ak_df.empty:
+                            # 只严格检查关键字段
+                            if check_new_listing_completeness(ak_df):
+                                logger.info(f"{'测试模式' if test else '正常模式'}: 从AkShare成功获取 {len(ak_df)} 条新上市交易信息")
                                 # 确保列名标准化
-                                if '上市日期' not in df.columns:
-                                    df['上市日期'] = date_str
+                                if '上市日期' not in ak_df.columns:
+                                    ak_df['上市日期'] = date_str
                                 # 添加类型标识
-                                df['类型'] = '股票'
-                                return df[['股票代码', '股票简称', '发行价格', '上市日期', '类型']]
+                                ak_df['类型'] = '股票'
+                                return ak_df  # 返回完整数据，不丢弃任何字段
                             else:
                                 logger.warning(f"{'测试模式' if test else '正常模式'}: AkShare返回的新上市交易数据不完整，将尝试备用数据源...")
             except Exception as e:
@@ -481,7 +478,7 @@ def get_new_stock_listings(test=False):
                             continue
                 
                 if not cb_df.empty:
-                    # 仅记录列名信息，不显示数据内容
+                    # 仅记录列名信息
                     logger.info(f"AkShare返回可转债上市数据列数: {len(cb_df.columns)}")
                     logger.info(f"AkShare返回可转债上市数据记录数: {len(cb_df)}")
                     logger.info(f"AkShare返回可转债上市数据列名: {cb_df.columns.tolist()}")
@@ -501,7 +498,7 @@ def get_new_stock_listings(test=False):
                         # 筛选目标日期数据
                         cb_df = cb_df[cb_df[listing_date_col] == date_str]
                         if not cb_df.empty:
-                            # 检查数据完整性
+                            # 只严格检查关键字段
                             if '债券代码' in cb_df.columns and '债券简称' in cb_df.columns:
                                 logger.info(f"{'测试模式' if test else '正常模式'}: 从AkShare成功获取 {len(cb_df)} 条可转债上市信息")
                                 # 重命名列以匹配股票格式
@@ -511,7 +508,7 @@ def get_new_stock_listings(test=False):
                                 })
                                 # 添加类型标识
                                 cb_df['类型'] = '可转债'
-                                return cb_df[['股票代码', '股票简称', '上市日期', '类型']]
+                                return cb_df  # 返回完整数据，不丢弃任何字段
                             else:
                                 logger.warning(f"{'测试模式' if test else '正常模式'}: AkShare返回的可转债上市数据不完整")
             except Exception as e:
@@ -536,7 +533,7 @@ def get_new_stock_listings(test=False):
                             data_list.append(rs.get_row_data())
                         df = pd.DataFrame(data_list, columns=rs.fields)
                         if not df.empty:
-                            # 仅记录列名信息，不显示数据内容
+                            # 仅记录列名信息
                             logger.info(f"Baostock返回新上市交易数据列数: {len(df.columns)}")
                             logger.info(f"Baostock返回新上市交易数据记录数: {len(df)}")
                             logger.info(f"Baostock返回新上市交易数据列名: {df.columns.tolist()}")
@@ -545,17 +542,26 @@ def get_new_stock_listings(test=False):
                             df['list_date'] = pd.to_datetime(df['list_date']).dt.strftime('%Y-%m-%d')
                             df = df[df['list_date'] == date_str]
                             if not df.empty:
-                                # 检查数据完整性
-                                if check_new_listing_completeness(df):
-                                    logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(df)} 条新上市交易信息")
-                                    # 添加类型标识
-                                    df['类型'] = '股票'
-                                    return df[['code', 'code_name', 'issue_price', 'list_date', '类型']].rename(columns={
-                                        'code': '股票代码',
-                                        'code_name': '股票简称',
-                                        'issue_price': '发行价格',
-                                        'list_date': '上市日期'
-                                    })
+                                # 创建新的DataFrame，但保留所有字段
+                                result_df = pd.DataFrame()
+                                result_df['股票代码'] = df['code']
+                                result_df['股票简称'] = df['code_name']
+                                result_df['上市日期'] = df['list_date']
+                                
+                                # 复制其他所有字段
+                                for col in df.columns:
+                                    if col not in ['code', 'code_name', 'list_date'] and col not in result_df.columns:
+                                        result_df[col] = df[col]
+                                
+                                # 添加类型标识
+                                result_df['类型'] = '股票'
+                                
+                                # 只严格检查关键字段
+                                if check_new_listing_completeness(result_df):
+                                    logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(result_df)} 条新上市交易信息")
+                                    return result_df  # 返回完整数据，不丢弃任何字段
+                                else:
+                                    logger.warning(f"{'测试模式' if test else '正常模式'}: Baostock返回的数据缺少关键字段，跳过此数据源")
                 except AttributeError:
                     pass
                 
@@ -569,7 +575,7 @@ def get_new_stock_listings(test=False):
                             data_list.append(rs.get_row_data())
                         df = pd.DataFrame(data_list, columns=rs.fields)
                         if not df.empty:
-                            # 仅记录列名信息，不显示数据内容
+                            # 仅记录列名信息
                             logger.info(f"Baostock返回新上市交易数据列数: {len(df.columns)}")
                             logger.info(f"Baostock返回新上市交易数据记录数: {len(df)}")
                             logger.info(f"Baostock返回新上市交易数据列名: {df.columns.tolist()}")
@@ -578,17 +584,26 @@ def get_new_stock_listings(test=False):
                             df['list_date'] = pd.to_datetime(df['list_date']).dt.strftime('%Y-%m-%d')
                             df = df[df['list_date'] == date_str]
                             if not df.empty:
-                                # 检查数据完整性
-                                if check_new_listing_completeness(df):
-                                    logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(df)} 条新上市交易信息")
-                                    # 添加类型标识
-                                    df['类型'] = '股票'
-                                    return df[['code', 'code_name', 'issue_price', 'list_date', '类型']].rename(columns={
-                                        'code': '股票代码',
-                                        'code_name': '股票简称',
-                                        'issue_price': '发行价格',
-                                        'list_date': '上市日期'
-                                    })
+                                # 创建新的DataFrame，但保留所有字段
+                                result_df = pd.DataFrame()
+                                result_df['股票代码'] = df['code']
+                                result_df['股票简称'] = df['code_name']
+                                result_df['上市日期'] = df['list_date']
+                                
+                                # 复制其他所有字段
+                                for col in df.columns:
+                                    if col not in ['code', 'code_name', 'list_date'] and col not in result_df.columns:
+                                        result_df[col] = df[col]
+                                
+                                # 添加类型标识
+                                result_df['类型'] = '股票'
+                                
+                                # 只严格检查关键字段
+                                if check_new_listing_completeness(result_df):
+                                    logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(result_df)} 条新上市交易信息")
+                                    return result_df  # 返回完整数据，不丢弃任何字段
+                                else:
+                                    logger.warning(f"{'测试模式' if test else '正常模式'}: Baostock返回的数据缺少关键字段，跳过此数据源")
                 except AttributeError:
                     pass
             except Exception as e:
