@@ -1350,3 +1350,10 @@ def read_listing_pushed_flag(date):
     flag_path = os.path.join(Config.NEW_STOCK_DIR, f'listing_pushed_{date.strftime("%Y%m%d")}.flag')
     is_pushed = os.path.exists(flag_path)
     return flag_path, is_pushed
+
+def mark_listing_info_pushed():
+    """标记新上市交易股票信息已推送"""
+    flag_path = os.path.join(Config.NEW_STOCK_DIR, f'listing_pushed_{get_beijing_time().date().strftime("%Y%m%d")}.flag')
+    with open(flag_path, 'w') as f:
+        f.write(get_beijing_time().strftime('%Y-%m-%d %H:%M:%S'))
+    logger.info(f"标记新上市交易股票信息已推送: {flag_path}")
