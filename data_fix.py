@@ -117,7 +117,13 @@ def check_new_listing_completeness(df):
     return True
 
 def get_cache_path(etf_code, data_type='daily'):
-    """生成指定ETF和数据类型的缓存文件路径（通用路径清理版）"""
+    """生成指定ETF和数据类型的缓存文件路径
+    参数:
+        etf_code: ETF代码
+        data_type: 'daily'或'intraday'
+    返回:
+        str: 缓存文件路径
+    """
     # 确保etf_code是标准化格式
     if not etf_code.startswith(('sh.', 'sz.')):
         if etf_code.startswith(('5', '119')):
@@ -125,26 +131,9 @@ def get_cache_path(etf_code, data_type='daily'):
         else:
             etf_code = f"sz.{etf_code}"
     
-    # 生成基础路径
-    cache_dir = os.path.join(Config.RAW_DATA_DIR, 'cache', data_type)
-    
-    # ===== 通用路径清理 =====
-    # 分割路径并过滤掉空字符串和重复部分
-    parts = cache_dir.split(os.sep)
-    cleaned_parts = [parts[0]]  # 保留根目录或驱动器
-    
-    for part in parts[1:]:
-        if part and (not cleaned_parts or cleaned_parts[-1] != part):
-            cleaned_parts.append(part)
-    
-    # 重新构建路径
-    cache_dir = os.sep.join(cleaned_parts)
-    
-    # 确保目录存在
-    os.makedirs(cache_dir, exist_ok=True)
-    
-    # 返回带后缀的文件名
-    return os.path.join(cache_dir, f'{etf_code}_{data_type}.csv')
+    # 严格遵循config.py配置，不再创建额外子目录
+    # 直接使用RAW_DATA_DIR，文件名包含data_type后缀
+    return os.path.join(Config.RAW_DATA_DIR, f'{etf_code}_{data_type}.csv')
 
 def load_from_cache(etf_code, data_type='daily', days=30):
     """从缓存加载ETF数据
@@ -192,7 +181,7 @@ def save_to_cache(etf_code, data, data_type='daily'):
     """将ETF数据保存到缓存（增量保存）
     参数:
         etf_code: ETF代码
-        data: DataFrame数据
+         DataFrame数据
         data_type: 'daily'或'intraday'
     """
     # 确保etf_code是标准化格式
@@ -512,50 +501,6 @@ def get_etf_data(etf_code, data_type='daily'):
     logger.error(error_msg)
     send_wecom_message(error_msg)
     return None
-
-def get_market_sentiment():
-    """获取市场情绪指标（示例实现）"""
-    # 示例：随机生成情绪评分（实际应替换为真实数据源）
-    sentiment_score = random.uniform(0, 100)
-    return {
-        "sentiment_score": sentiment_score,
-        "market_trend": "bullish" if sentiment_score > 50 else "bearish",
-        "volatility_index": random.uniform(10, 30)
-    }
-
-def get_etf_iopv_data(etf_code):
-    """获取ETF净值数据"""
-    try:
-        # 尝试从AkShare获取净值数据
-        logger.info(f"尝试从AkShare获取{etf_code}净值数据...")
-        logger.info("AkShare接口: ak.fund_etf_iopv_em()")
-        df = akshare_retry(ak.fund_etf_iopv_em, symbol=etf_code)
-        
-        if df is not None and not df.empty:
-            # 标准化列名
-            column_mapping = {
-                '日期': 'date',
-                'iopv': 'iopv',
-                '净值': 'net_value',
-                '溢价率': 'premium_rate'
-            }
-            existing_columns = [col for col in column_mapping.keys() if col in df.columns]
-            rename_dict = {col: column_mapping[col] for col in existing_columns}
-            df = df.rename(columns=rename_dict)
-            
-            # 确保必要列存在
-            required_columns = ['date', 'iopv', 'net_value', 'premium_rate']
-            for col in required_columns:
-                if col not in df.columns:
-                    df[col] = None
-            
-            # 转换日期格式
-            df['date'] = pd.to_datetime(df['date'])
-            return df
-    except Exception as e:
-        logger.error(f"获取{etf_code}净值数据失败: {str(e)}", exc_info=True)
-        send_wecom_message(f"获取{etf_code}净值数据失败: {str(e)}")
-        return None
 
 def get_new_stock_subscriptions(test=False):
     """获取新股申购信息
@@ -1106,6 +1051,37 @@ def get_new_stock_listings(test=False):
         send_wecom_message(error_msg)
         return pd.DataFrame()
 
+def read_new_stock_pushed_flag(date):
+    """读取新股信息是否已推送标志"""
+    flag_path = os.path.join(Config.NEW_STOCK_DIR, f'new_stock_pushed_{date.strftime("%Y%m%d")}.flag')
+    is_pushed = os.path.exists(flag_path)
+    return flag_path, is_pushed
+
+def mark_new_stock_info_pushed():
+    """标记新股信息已推送"""
+    flag_path, _ = read_new_stock_pushed_flag(get_beijing_time().date())
+    with open(flag_path, 'w') as f:
+        f.write(get_beijing_time().strftime('%Y-%m-%d %H:%M:%S'))
+    logger.info(f"标记新股信息已推送: {flag_path}")
+
+def read_listing_pushed_flag(date):
+    """读取新上市交易信息是否已推送标志
+    参数:
+        date: 日期对象
+    返回:
+        tuple: (flag_path, is_pushed)
+    """
+    flag_path = os.path.join(Config.NEW_STOCK_DIR, f'listing_pushed_{date.strftime("%Y%m%d")}.flag')
+    is_pushed = os.path.exists(flag_path)
+    return flag_path, is_pushed
+
+def mark_listing_info_pushed():
+    """标记新上市交易信息已推送"""
+    flag_path, _ = read_listing_pushed_flag(get_beijing_time().date())
+    with open(flag_path, 'w') as f:
+        f.write(get_beijing_time().strftime('%Y-%m-%d %H:%M:%S'))
+    logger.info(f"标记新上市交易信息已推送: {flag_path}")
+
 def update_crawl_status(etf_code, status, error_msg=None):
     """更新爬取状态"""
     status_file = os.path.join(Config.RAW_DATA_DIR, 'crawl_status.json')
@@ -1384,30 +1360,3 @@ def check_data_integrity():
             return error_msg
     
     return None
-
-
-def read_new_stock_pushed_flag(date):
-    """读取新股信息是否已推送标志"""
-    flag_path = os.path.join(Config.NEW_STOCK_DIR, f'new_stock_pushed_{date.strftime("%Y%m%d")}.flag')
-    is_pushed = os.path.exists(flag_path)
-    return flag_path, is_pushed
-
-def mark_new_stock_info_pushed():
-    """标记新股信息已推送"""
-    flag_path, _ = read_new_stock_pushed_flag(get_beijing_time().date())
-    with open(flag_path, 'w') as f:
-        f.write(get_beijing_time().strftime('%Y-%m-%d %H:%M:%S'))
-    logger.info(f"标记新股信息已推送: {flag_path}")
-
-def read_listing_pushed_flag(date):
-    """读取新上市交易股票信息是否已推送标志"""
-    flag_path = os.path.join(Config.NEW_STOCK_DIR, f'listing_pushed_{date.strftime("%Y%m%d")}.flag')
-    is_pushed = os.path.exists(flag_path)
-    return flag_path, is_pushed
-
-def mark_listing_info_pushed():
-    """标记新上市交易股票信息已推送"""
-    flag_path = os.path.join(Config.NEW_STOCK_DIR, f'listing_pushed_{get_beijing_time().date().strftime("%Y%m%d")}.flag')
-    with open(flag_path, 'w') as f:
-        f.write(get_beijing_time().strftime('%Y-%m-%d %H:%M:%S'))
-    logger.info(f"标记新上市交易股票信息已推送: {flag_path}")
