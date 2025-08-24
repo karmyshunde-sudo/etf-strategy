@@ -153,48 +153,49 @@ def get_new_stock_subscriptions(test=False):
             logger.info(f"{'测试模式' if test else '正常模式'}: 尝试获取 {date_str} 的新股申购数据")
             
             # 尝试AkShare（主数据源）
+            ak_df = None
             try:
                 logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从AkShare获取新股申购信息...")
                 logger.info(f"AkShare接口: ak.stock_xgsglb_em()")
+                ak_df = akshare_retry(ak.stock_xgsglb_em)
                 
-                df = akshare_retry(ak.stock_xgsglb_em)
-                
-                if not df.empty:
+                if not ak_df.empty:
                     # 仅记录列名信息，不显示数据内容
-                    logger.info(f"AkShare返回新股数据列数: {len(df.columns)}")
-                    logger.info(f"AkShare返回新股数据记录数: {len(df)}")
-                    logger.info(f"AkShare返回新股数据列名: {df.columns.tolist()}")
+                    logger.info(f"AkShare返回新股数据列数: {len(ak_df.columns)}")
+                    logger.info(f"AkShare返回新股数据记录数: {len(ak_df)}")
+                    logger.info(f"AkShare返回新股数据列名: {ak_df.columns.tolist()}")
                     
                     # 动态匹配日期列
-                    date_col = next((col for col in df.columns 
+                    date_col = next((col for col in ak_df.columns 
                                    if any(kw in col.lower() for kw in ['申购日期', 'ipo_date', 'issue_date'])), None)
                     
-                    if date_col and date_col in df.columns:
+                    if date_col and date_col in ak_df.columns:
                         # 确保日期列是正确格式
-                        if not pd.api.types.is_datetime64_any_dtype(df[date_col]):
+                        if not pd.api.types.is_datetime64_any_dtype(ak_df[date_col]):
                             try:
-                                df[date_col] = pd.to_datetime(df[date_col]).dt.strftime('%Y-%m-%d')
+                                ak_df[date_col] = pd.to_datetime(ak_df[date_col]).dt.strftime('%Y-%m-%d')
                             except:
                                 pass
                         
                         # 筛选目标日期数据
-                        df = df[df[date_col] == date_str]
-                        if not df.empty:
+                        ak_df = ak_df[ak_df[date_col] == date_str]
+                        if not ak_df.empty:
                             # 检查数据完整性
-                            if check_new_stock_completeness(df):
-                                logger.info(f"{'测试模式' if test else '正常模式'}: 从AkShare成功获取 {len(df)} 条新股申购信息")
+                            if check_new_stock_completeness(ak_df):
+                                logger.info(f"{'测试模式' if test else '正常模式'}: 从AkShare成功获取 {len(ak_df)} 条新股申购信息")
                                 # 确保列名标准化
-                                if '申购日期' not in df.columns:
-                                    df['申购日期'] = date_str
+                                if '申购日期' not in ak_df.columns:
+                                    ak_df['申购日期'] = date_str
                                 # 添加类型标识
-                                df['类型'] = '股票'
-                                return df[['股票代码', '股票简称', '发行价格', '申购上限', '申购日期', '类型']]
+                                ak_df['类型'] = '股票'
+                                return ak_df[['股票代码', '股票简称', '发行价格', '申购上限', '申购日期', '类型']]
                             else:
-                                logger.warning(f"{'测试模式' if test else '正常模式'}: AkShare返回的新股数据不完整，将尝试备用数据源...")
+                                logger.warning(f"{'测试模式' if test else '正常模式'}: AkShare返回的新股数据不完整")
             except Exception as e:
                 logger.error(f"{'测试模式' if test else '正常模式'}: AkShare获取新股信息失败: {str(e)}", exc_info=True)
             
             # 尝试获取可转债数据
+            cb_df = None
             try:
                 logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从AkShare获取可转债申购信息...")
                 logger.info(f"尝试AkShare接口: ak.bond_cb_issue_em()")
@@ -213,7 +214,6 @@ def get_new_stock_subscriptions(test=False):
                             logger.info("成功调用ak.bond_cb_em()接口")
                         else:
                             logger.error("AkShare版本过旧，不支持可转债数据接口")
-                            continue
                     elif akshare_version.startswith('0.'):
                         logger.info("尝试替代接口: ak.bond_cb_all()")
                         if hasattr(ak, 'bond_cb_all'):
@@ -221,9 +221,8 @@ def get_new_stock_subscriptions(test=False):
                             logger.info("成功调用ak.bond_cb_all()接口")
                         else:
                             logger.error("AkShare版本过旧，不支持可转债数据接口")
-                            continue
                 
-                if not cb_df.empty:
+                if cb_df is not None and not cb_df.empty:
                     # 仅记录列名信息，不显示数据内容
                     logger.info(f"AkShare返回可转债数据列数: {len(cb_df.columns)}")
                     logger.info(f"AkShare返回可转债数据记录数: {len(cb_df)}")
@@ -265,6 +264,7 @@ def get_new_stock_subscriptions(test=False):
                 logger.error(f"{'测试模式' if test else '正常模式'}: AkShare获取可转债信息失败: {str(e)}", exc_info=True)
             
             # 尝试Baostock（备用数据源）
+            bs_df = None
             try:
                 logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从Baostock获取新股申购信息...")
                 logger.info("Baostock接口: bs.query_stock_new()")
@@ -281,25 +281,25 @@ def get_new_stock_subscriptions(test=False):
                         data_list = []
                         while (rs.error_code == '0') & rs.next():
                             data_list.append(rs.get_row_data())
-                        df = pd.DataFrame(data_list, columns=rs.fields)
-                        if not df.empty:
+                        bs_df = pd.DataFrame(data_list, columns=rs.fields)
+                        if not bs_df.empty:
                             # 仅记录列名信息，不显示数据内容
-                            logger.info(f"Baostock返回新股数据列数: {len(df.columns)}")
-                            logger.info(f"Baostock返回新股数据记录数: {len(df)}")
-                            logger.info(f"Baostock返回新股数据列名: {df.columns.tolist()}")
+                            logger.info(f"Baostock返回新股数据列数: {len(bs_df.columns)}")
+                            logger.info(f"Baostock返回新股数据记录数: {len(bs_df)}")
+                            logger.info(f"Baostock返回新股数据列名: {bs_df.columns.tolist()}")
                             
                             # 标准化日期格式
-                            df['ipoDate'] = pd.to_datetime(df['ipoDate']).dt.strftime('%Y-%m-%d')
-                            df = df[df['ipoDate'] == date_str]
-                            if not df.empty:
+                            bs_df['ipoDate'] = pd.to_datetime(bs_df['ipoDate']).dt.strftime('%Y-%m-%d')
+                            bs_df = bs_df[bs_df['ipoDate'] == date_str]
+                            if not bs_df.empty:
                                 # 关键修复：创建新的DataFrame，填充缺失字段
                                 result_df = pd.DataFrame()
-                                result_df['股票代码'] = df['code']
-                                result_df['股票简称'] = df['code_name']
+                                result_df['股票代码'] = bs_df['code']
+                                result_df['股票简称'] = bs_df['code_name']
                                 # 填充缺失字段（如果不存在）
-                                result_df['发行价格'] = df.get('price', [None] * len(df))
-                                result_df['申购上限'] = df.get('max_purchase', [None] * len(df))
-                                result_df['申购日期'] = df['ipoDate']
+                                result_df['发行价格'] = bs_df.get('price', [None] * len(bs_df))
+                                result_df['申购上限'] = bs_df.get('max_purchase', [None] * len(bs_df))
+                                result_df['申购日期'] = bs_df['ipoDate']
                                 result_df['类型'] = '股票'
                                 
                                 # 检查数据完整性
@@ -311,9 +311,9 @@ def get_new_stock_subscriptions(test=False):
                                     logger.warning(f"{'测试模式' if test else '正常模式'}: Baostock返回的数据不完整，但将返回可用字段")
                                     # 创建最小必要字段的DataFrame
                                     minimal_df = pd.DataFrame()
-                                    minimal_df['股票代码'] = df['code']
-                                    minimal_df['股票简称'] = df['code_name']
-                                    minimal_df['申购日期'] = df['ipoDate']
+                                    minimal_df['股票代码'] = bs_df['code']
+                                    minimal_df['股票简称'] = bs_df['code_name']
+                                    minimal_df['申购日期'] = bs_df['ipoDate']
                                     minimal_df['发行价格'] = None
                                     minimal_df['申购上限'] = None
                                     minimal_df['类型'] = '股票'
@@ -329,25 +329,25 @@ def get_new_stock_subscriptions(test=False):
                         data_list = []
                         while (rs.error_code == '0') & rs.next():
                             data_list.append(rs.get_row_data())
-                        df = pd.DataFrame(data_list, columns=rs.fields)
-                        if not df.empty:
+                        bs_df = pd.DataFrame(data_list, columns=rs.fields)
+                        if not bs_df.empty:
                             # 仅记录列名信息，不显示数据内容
-                            logger.info(f"Baostock返回新股数据列数: {len(df.columns)}")
-                            logger.info(f"Baostock返回新股数据记录数: {len(df)}")
-                            logger.info(f"Baostock返回新股数据列名: {df.columns.tolist()}")
+                            logger.info(f"Baostock返回新股数据列数: {len(bs_df.columns)}")
+                            logger.info(f"Baostock返回新股数据记录数: {len(bs_df)}")
+                            logger.info(f"Baostock返回新股数据列名: {bs_df.columns.tolist()}")
                             
                             # 标准化日期格式
-                            df['ipoDate'] = pd.to_datetime(df['ipoDate']).dt.strftime('%Y-%m-%d')
-                            df = df[df['ipoDate'] == date_str]
-                            if not df.empty:
+                            bs_df['ipoDate'] = pd.to_datetime(bs_df['ipoDate']).dt.strftime('%Y-%m-%d')
+                            bs_df = bs_df[bs_df['ipoDate'] == date_str]
+                            if not bs_df.empty:
                                 # 关键修复：创建新的DataFrame，填充缺失字段
                                 result_df = pd.DataFrame()
-                                result_df['股票代码'] = df['code']
-                                result_df['股票简称'] = df['code_name']
+                                result_df['股票代码'] = bs_df['code']
+                                result_df['股票简称'] = bs_df['code_name']
                                 # 填充缺失字段（如果不存在）
-                                result_df['发行价格'] = df.get('price', [None] * len(df))
-                                result_df['申购上限'] = df.get('max_purchase', [None] * len(df))
-                                result_df['申购日期'] = df['ipoDate']
+                                result_df['发行价格'] = bs_df.get('price', [None] * len(bs_df))
+                                result_df['申购上限'] = bs_df.get('max_purchase', [None] * len(bs_df))
+                                result_df['申购日期'] = bs_df['ipoDate']
                                 result_df['类型'] = '股票'
                                 
                                 # 检查数据完整性
@@ -359,9 +359,9 @@ def get_new_stock_subscriptions(test=False):
                                     logger.warning(f"{'测试模式' if test else '正常模式'}: Baostock返回的数据不完整，但将返回可用字段")
                                     # 创建最小必要字段的DataFrame
                                     minimal_df = pd.DataFrame()
-                                    minimal_df['股票代码'] = df['code']
-                                    minimal_df['股票简称'] = df['code_name']
-                                    minimal_df['申购日期'] = df['ipoDate']
+                                    minimal_df['股票代码'] = bs_df['code']
+                                    minimal_df['股票简称'] = bs_df['code_name']
+                                    minimal_df['申购日期'] = bs_df['ipoDate']
                                     minimal_df['发行价格'] = None
                                     minimal_df['申购上限'] = None
                                     minimal_df['类型'] = '股票'
