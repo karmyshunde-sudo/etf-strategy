@@ -22,7 +22,7 @@ from data_fix import (
                       get_etf_data, crawl_etf_data, read_new_stock_pushed_flag, 
                       mark_new_stock_info_pushed, read_listing_pushed_flag, 
                       mark_listing_info_pushed, check_data_integrity, send_wecom_message,
-                      get_etf_iopv_data, get_market_sentiment)
+                      get_etf_iopv_data, get_market_sentiment, cron_crawl_daily)
 
 # 确保所有数据目录存在
 Config.init_directories()
