@@ -90,3 +90,5 @@ Traceback (most recent call last):
 Exception: Baostock 接口不支持
 2025-08-24 03:03:15,167 - data_fix - ERROR - AkShare版本过旧，不支持可转债数据接口
 2025-08-24 03:03:28,147 - data_fix - ERROR - AkShare版本过旧，不支持可转债数据接口
+2025-08-24 03:06:15,918 - data_fix - ERROR - 【数据错误】sh.588940日线数据缺失
+2025-08-24 03:06:17,307 - __main__ - ERROR - 【数据错误】【数据错误】sh.588940日线数据缺失
