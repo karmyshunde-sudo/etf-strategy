@@ -63,7 +63,9 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-      
+          clean: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
@@ -115,7 +117,9 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-      
+          clean: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
@@ -169,6 +173,8 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          clean: true
+          token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -222,6 +228,8 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          clean: true
+          token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -274,6 +282,8 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          clean: true
+          token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -343,6 +353,8 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          clean: true
+          token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -395,6 +407,8 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          clean: true
+          token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -446,6 +460,8 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          clean: true
+          token: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Set up Python
         uses: actions/setup-python@v4
