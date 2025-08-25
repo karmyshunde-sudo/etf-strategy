@@ -181,7 +181,7 @@ def save_to_cache(etf_code, data, data_type='daily'):
     """将ETF数据保存到缓存（增量保存）
     参数:
         etf_code: ETF代码
-         DataFrame数据
+        data: DataFrame数据
         data_type: 'daily'或'intraday'
     """
     # 确保etf_code是标准化格式
@@ -198,22 +198,64 @@ def save_to_cache(etf_code, data, data_type='daily'):
     temp_path = cache_path + '.tmp'
     
     try:
+        # 1. 先写入临时文件
         data.to_csv(temp_path, index=False)
         
-        # 如果存在原文件，合并数据
+        # 2. 如果存在原文件，合并数据
         if os.path.exists(cache_path):
             existing_data = pd.read_csv(cache_path)
             combined = pd.concat([existing_data, data])
             
             # 去重并按日期排序
             combined = combined.drop_duplicates(subset=['date'], keep='last')
+            combined = combined.sort_values('date')
             combined.to_csv(temp_path, index=False)
         
-        os.replace(temp_path, cache_path)
-        logger.info(f"成功保存 {etf_code} {data_type} 数据到 {cache_path}")
+        # 3. 原子操作：先删除原文件，再重命名
+        if os.path.exists(cache_path):
+            os.remove(cache_path)
+        os.rename(temp_path, cache_path)
+        
+        # 4. 验证文件确实存在且可读
+        if not os.path.exists(cache_path):
+            raise FileNotFoundError(f"文件保存后未找到: {cache_path}")
+        
+        # 5. 验证文件内容
+        try:
+            test_df = pd.read_csv(cache_path)
+            if len(test_df) < len(data):
+                logger.warning(f"保存的文件 {cache_path} 数据量少于预期 ({len(test_df)}/{len(data)})")
+        except Exception as e:
+            logger.error(f"验证保存的文件失败: {str(e)}")
+            raise
+        
+        # 6. 记录成功信息
+        logger.info(f"成功保存 {etf_code} {data_type} 数据到 {cache_path} ({len(data)}条记录)")
+        
+        # 7. 尝试添加到 Git（非阻塞）
+        try:
+            # 添加文件到 Git
+            subprocess.run(['git', 'add', cache_path], 
+                          check=True, 
+                          stdout=subprocess.DEVNULL, 
+                          stderr=subprocess.DEVNULL)
+            
+            # 记录添加成功
+            logger.debug(f"已将 {cache_path} 添加到 Git 暂存区")
+        except Exception as e:
+            logger.warning(f"添加 {cache_path} 到 Git 失败: {str(e)} (这不会影响数据保存，但可能导致文件不会被提交到仓库)")
+        
         return True
     except Exception as e:
         logger.error(f"保存 {etf_code} {data_type} 数据失败: {str(e)}", exc_info=True)
+        
+        # 清理临时文件
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except:
+                pass
+        
         return False
 
 def get_all_etf_list():
