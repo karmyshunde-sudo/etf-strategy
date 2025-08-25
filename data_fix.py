@@ -292,7 +292,7 @@ def get_all_etf_list():
             else:
                 logger.warning("AkShare备用接口返回空ETF列表")
         
-        if not df.empty:
+        if df is not None and not df.empty:
             # 动态匹配列名 - 增强容错能力
             code_col = next((col for col in df.columns 
                            if any(kw in col.lower() for kw in ['代码', 'symbol', 'code'])), None)
@@ -354,31 +354,88 @@ def get_all_etf_list():
         url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getETFList"
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
-            data = json.loads(response.text)
-            if data:
-                logger.info(f"新浪财经返回ETF列表数据记录数: {len(data)}")
-                # 假设返回的数据有symbol和name字段
-                if data and 'symbol' in data[0] and 'name' in data[0]:
-                    logger.info("新浪财经返回ETF列表数据包含必要字段")
-                else:
-                    logger.warning("新浪财经返回ETF列表数据缺少必要字段")
+            try:
+                data = json.loads(response.text)
                 
-                etf_list = pd.DataFrame(data)
-                etf_list['code'] = etf_list['symbol'].apply(lambda x: f"sh.{x}" if x.startswith('5') else f"sz.{x}")
-                etf_list = etf_list[['code', 'name']]
-                logger.info(f"从新浪财经成功获取 {len(etf_list)} 只ETF")
-                return etf_list
-            else:
-                logger.warning("新浪财经返回空ETF列表")
+                # 修复：检查data的类型
+                logger.info(f"新浪财经返回数据类型: {type(data)}")
+                
+                # 处理可能的字典类型数据
+                if isinstance(data, dict):
+                    # 检查是否有data字段
+                    if 'data' in data and 'list' in data['data']:
+                        data = data['data']['list']
+                        logger.info(f"从字典中提取列表数据，记录数: {len(data)}")
+                
+                # 处理列表类型数据
+                if isinstance(data, list) and len(data) > 0:
+                    logger.info(f"新浪财经返回ETF列表数据记录数: {len(data)}")
+                    
+                    # 检查数据结构
+                    sample = data[0]
+                    logger.info(f"新浪财经返回数据示例: {sample}")
+                    
+                    # 动态匹配symbol和name字段
+                    symbol_col = next((k for k in sample.keys() if 'symbol' in k.lower()), None)
+                    name_col = next((k for k in sample.keys() if 'name' in k.lower()), None)
+                    
+                    if symbol_col and name_col:
+                        etf_list = pd.DataFrame(data)
+                        etf_list['code'] = etf_list[symbol_col].apply(
+                            lambda x: f"sh.{x}" if str(x).startswith('5') else f"sz.{x}"
+                        )
+                        etf_list = etf_list.rename(columns={name_col: 'name'})
+                        etf_list = etf_list[['code', 'name']]
+                        
+                        logger.info(f"从新浪财经成功获取 {len(etf_list)} 只ETF")
+                        return etf_list
+                    else:
+                        logger.warning("新浪财经返回数据缺少symbol或name字段")
+                else:
+                    logger.warning("新浪财经返回空数据或格式不正确")
+            except Exception as e:
+                logger.error(f"处理新浪财经返回数据时出错: {str(e)}", exc_info=True)
         else:
             logger.warning(f"新浪财经请求失败，状态码: {response.status_code}")
     except Exception as e:
         logger.error(f"新浪财经获取ETF列表失败: {str(e)}", exc_info=True)
     
-    error_msg = "【数据错误】无法从所有数据源获取ETF列表"
-    logger.error(error_msg)
-    send_wecom_message(error_msg)
-    return pd.DataFrame()
+    # 新增：尝试从兜底CSV文件获取ETF列表
+    fallback_csv_path = os.path.join(Config.STOCK_POOL_DIR, 'fallback_etf_list.csv')
+    try:
+        if os.path.exists(fallback_csv_path):
+            logger.info(f"尝试从兜底CSV文件加载ETF列表: {fallback_csv_path}")
+            etf_list = pd.read_csv(fallback_csv_path)
+            
+            # 验证数据格式
+            if 'code' in etf_list.columns and 'name' in etf_list.columns:
+                logger.info(f"成功从兜底CSV文件加载 {len(etf_list)} 只ETF")
+                return etf_list
+            else:
+                logger.error(f"兜底CSV文件格式不正确，缺少必要列: {etf_list.columns.tolist()}")
+        else:
+            logger.warning(f"兜底CSV文件不存在: {fallback_csv_path}")
+    except Exception as e:
+        logger.error(f"读取兜底CSV文件失败: {str(e)}", exc_info=True)
+    
+    # 如果所有数据源都失败，返回一个最小的ETF列表（作为最后的兜底）
+    logger.warning("所有数据源都失败，使用最小ETF列表作为兜底")
+    fallback_etfs = [
+        {'code': 'sh.510050', 'name': '上证50ETF'},
+        {'code': 'sh.510300', 'name': '沪深300ETF'},
+        {'code': 'sh.510500', 'name': '中证500ETF'},
+        {'code': 'sh.588940', 'name': '科创100ETF'},
+        {'code': 'sh.588000', 'name': '科创50ETF'},
+        {'code': 'sh.588080', 'name': '科创板50ETF'},
+        {'code': 'sh.588900', 'name': '科创创业50ETF'},
+        {'code': 'sh.588950', 'name': '科创创业50ETF'},
+        {'code': 'sh.588990', 'name': '科创板芯片ETF'},
+        {'code': 'sh.588120', 'name': '科创板新材料ETF'},
+        {'code': 'sh.588400', 'name': '科创板人工智能ETF'},
+        {'code': 'sh.588050', 'name': '科创生物医药ETF'}
+    ]
+    logger.info(f"使用兜底ETF列表，包含 {len(fallback_etfs)} 只ETF")
+    return pd.DataFrame(fallback_etfs)
 
 def get_etf_data(etf_code, data_type='daily'):
     """从多数据源获取ETF数据（增量获取）
