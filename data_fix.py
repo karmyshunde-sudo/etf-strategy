@@ -1399,3 +1399,82 @@ def send_wecom_message(message):
     except Exception as e:
         logger.error(f"发送企业微信消息时出错: {str(e)}")
         return False
+
+def crawl_etf_data(data_type='daily'):
+    """爬取ETF数据（增量爬取）
+    参数:
+        data_type: 数据类型 ('daily' 或 'intraday')
+    返回:
+        dict: 爬取结果统计
+    """
+    # 获取ETF列表
+    etf_list = get_all_etf_list()
+    if etf_list is None or etf_list.empty:
+        error_msg = "【数据错误】ETF列表获取失败，无法爬取数据"
+        logger.error(error_msg)
+        send_wecom_message(error_msg)
+        return {"status": "error", "message": "ETF list retrieval failed"}
+    
+    success_count = 0
+    failed_count = 0
+    skipped_count = 0
+    
+    for _, etf in etf_list.iterrows():
+        # 确保ETF代码是标准化格式
+        etf_code = standardize_code(etf['code'])
+        try:
+            # 获取起始日期（从缓存中获取最后日期）
+            cached_data = load_from_cache(etf_code, 'daily')
+            start_date = None
+            if cached_data is not None and not cached_data.empty:
+                last_date = cached_data['date'].max()
+                # 检查是否已获取到最新数据
+                if (datetime.datetime.now().date() - last_date.date()).days <= 1:
+                    logger.info(f"ETF {etf_code} 已有最新数据到 {last_date.strftime('%Y-%m-%d')}，跳过爬取")
+                    skipped_count += 1
+                    continue
+                
+                start_date = (last_date + datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+                logger.info(f"ETF {etf_code} 已有数据到 {last_date.strftime('%Y-%m-%d')}，从 {start_date} 开始获取新数据")
+            else:
+                logger.info(f"ETF {etf_code} 无缓存数据，将获取最近一年的数据")
+                # 设置起始日期为一年前
+                start_date = (datetime.datetime.now() - datetime.timedelta(days=365)).strftime('%Y-%m-%d')
+            
+            # 尝试主数据源(AkShare)
+            data = get_etf_data(etf_code, 'daily', start_date=start_date)
+            
+            # 如果获取到完整数据
+            if data is not None and not data.empty and check_data_completeness(data):
+                logger.info(f"成功从AkShare爬取{etf_code}日线数据")
+                success_count += 1
+                continue
+            
+            # 所有数据源均失败
+            logger.warning(f"无法获取{etf_code}的完整数据")
+            failed_count += 1
+        except Exception as e:
+            error_msg = f"【系统错误】爬取{etf_code}日线数据异常: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            send_wecom_message(error_msg)
+            failed_count += 1
+            update_crawl_status(etf_code, 'failed', str(e))
+    
+    # 检查是否所有ETF都爬取成功
+    if success_count == len(etf_list):
+        # 清理状态文件
+        status_file = os.path.join(Config.RAW_DATA_DIR, 'crawl_status.json')
+        if os.path.exists(status_file):
+            try:
+                os.remove(status_file)
+                logger.info("所有ETF爬取成功，已清理状态文件")
+            except Exception as e:
+                logger.warning(f"清理状态文件失败: {str(e)}")
+    
+    return {
+        "status": "success" if failed_count == 0 else "partial_success",
+        "success_count": success_count,
+        "failed_count": failed_count,
+        "skipped_count": skipped_count
+    }
+
