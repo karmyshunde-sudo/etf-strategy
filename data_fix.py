@@ -1552,3 +1552,9 @@ def get_market_sentiment():
         "market_trend": "bullish" if sentiment_score > 50 else "bearish",
         "volatility_index": random.uniform(10, 30)
     }
+
+def cron_crawl_daily():
+    """定时任务：爬取日线数据"""
+    if not is_trading_day():
+        return {"status": "skipped", "message": "Not trading day"}
+    return crawl_etf_data(data_type='daily')
