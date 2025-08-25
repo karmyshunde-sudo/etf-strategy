@@ -86,13 +86,14 @@ jobs:
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
         run: |
           # 执行主程序
+          echo "当前北京时间: $(date -u -d "+8 hours" '+%Y-%m-%d %H:%M')"
           python main.py
           
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add data/
-          git commit -m "自动更新测试任务数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
+          git commit -m "手动测试任务数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
           git push origin main || echo "Failed to push changes"
 
       - name: Verify execution
@@ -139,18 +140,19 @@ jobs:
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
         run: |
           # 执行主程序
+          echo "当前北京时间: $(date -u -d "+8 hours" '+%Y-%m-%d %H:%M')"
           python main.py
           
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add data/
-          git commit -m "自动更新新股数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
+          git commit -m "定时任务：爬取新股数据 $(date +'%Y-%m-%d %H:%M')" || echo "更新失败：没有成功爬取新股数据"
           git push origin main || echo "Failed to push changes"
 
       - name: Verify execution
         run: |
-          echo "New stock info execution completed successfully!"
+          echo "北京时间9点31分爬取新股任务完成!"
 
   # 9:45 AM：推送新股申购和新上市股票信息
   push_new_stock:
@@ -191,18 +193,19 @@ jobs:
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
         run: |
           # 执行主程序
+          echo "当前北京时间: $(date -u -d "+8 hours" '+%Y-%m-%d %H:%M')"
           python main.py
           
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add data/
-          git commit -m "自动更新新股信息 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
+          git commit -m "定时任务：推送新股信息 $(date +'%Y-%m-%d %H:%M')" || echo "更新失败：没有新股信息"
           git push origin main || echo "Failed to push changes"
 
       - name: Verify execution
         run: |
-          echo "New stock info push execution completed successfully!"
+          echo "北京时间9点45分推送新股信息到微信任务完成!"
 
   # 9:55 AM：爬取当天ETF交易数据
   crawl_intraday:
@@ -242,13 +245,14 @@ jobs:
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
         run: |
           # 执行主程序
+          echo "当前北京时间: $(date -u -d "+8 hours" '+%Y-%m-%d %H:%M')"
           python main.py
           
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add data/
-          git commit -m "自动爬取ETF交易数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
+          git commit -m "定时任务：盘中爬取ETF交易数据 $(date +'%Y-%m-%d %H:%M')" || echo "更新失败：9点55爬取当天ETF交易数据失败"
           git push origin main || echo "Failed to push changes"
 
       - name: Verify execution
@@ -294,13 +298,14 @@ jobs:
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
         run: |
           # 执行主程序
+          echo "当前北京时间: $(date -u -d "+8 hours" '+%Y-%m-%d %H:%M')"
           python main.py
           
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add data/
-          git commit -m "自动扫描套利机会 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
+          git commit -m "定时任务：扫描套利机会 $(date +'%Y-%m-%d %H:%M')" || echo "定时任务：下午1点扫描套利机会失败"
           git push origin main || echo "Failed to push changes"
       
       - name: Run strategy push
@@ -309,13 +314,14 @@ jobs:
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
         run: |
           # 执行主程序
+          echo "当前北京时间: $(date -u -d "+8 hours" '+%Y-%m-%d %H:%M')"
           python main.py
           
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add data/
-          git commit -m "自动推送策略 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
+          git commit -m "定时任务：ETF策略计算并推送 $(date +'%Y-%m-%d %H:%M')" || echo "定时任务：下午1点ETF策略计算并推送失败"
           git push origin main || echo "Failed to push changes"
 
       - name: Verify execution
@@ -360,13 +366,14 @@ jobs:
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
         run: |
           # 执行主程序
+          echo "当前北京时间: $(date -u -d "+8 hours" '+%Y-%m-%d %H:%M')"
           python main.py
           
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add data/
-          git commit -m "自动爬取日线数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
+          git commit -m "定时任务：下午4点爬取日线数据 $(date +'%Y-%m-%d %H:%M')" || echo "定时任务：下午4点爬取日线数据失败"
           git push origin main || echo "Failed to push changes"
 
       - name: Verify execution
@@ -410,13 +417,14 @@ jobs:
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
         run: |
           # 执行主程序
+          echo "当前北京时间: $(date -u -d "+8 hours" '+%Y-%m-%d %H:%M')"
           python main.py
           
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add data/
-          git commit -m "自动清理旧数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
+          git commit -m "定时任务：零晨12点自动清理旧数据 $(date +'%Y-%m-%d %H:%M')" || echo "定时任务：零晨12点自动清理旧数据失败"
           git push origin main || echo "Failed to push changes"
 
       - name: Verify execution
@@ -473,13 +481,14 @@ jobs:
           TASK: 'resume_crawl'
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
         run: |
+          echo "当前北京时间: $(date -u -d "+8 hours" '+%Y-%m-%d %H:%M')"
           python main.py
           
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add data/
-          git commit -m "自动续爬ETF数据 $(date +'%Y-%m-%d %H:%M')" || echo "No changes to commit"
+          git commit -m "每2小时续爬ETF数据 $(date +'%Y-%m-%d %H:%M')" || echo "每2小时续爬ETF数据失败"
           git push origin main || echo "Failed to push changes"
       
       - name: Skip resume crawl (during trading hours)
