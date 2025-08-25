@@ -1478,3 +1478,8 @@ def crawl_etf_data(data_type='daily'):
         "skipped_count": skipped_count
     }
 
+def read_new_stock_pushed_flag(date):
+    """读取新股信息是否已推送标志"""
+    flag_path = os.path.join(Config.NEW_STOCK_DIR, f'new_stock_pushed_{date.strftime("%Y%m%d")}.flag')
+    is_pushed = os.path.exists(flag_path)
+    return flag_path, is_pushed
