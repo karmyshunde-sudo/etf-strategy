@@ -1508,3 +1508,37 @@ def mark_listing_info_pushed():
     with open(flag_path, 'w') as f:
         f.write(get_beijing_time().strftime('%Y-%m-%d %H:%M:%S'))
     logger.info(f"标记新上市交易信息已推送: {flag_path}")
+
+def get_etf_iopv_data(etf_code):
+    """获取ETF净值数据"""
+    try:
+        # 尝试从AkShare获取净值数据
+        logger.info(f"尝试从AkShare获取{etf_code}净值数据...")
+        logger.info("AkShare接口: ak.fund_etf_iopv_em()")
+        df = akshare_retry(ak.fund_etf_iopv_em, symbol=etf_code)
+        
+        if df is not None and not df.empty:
+            # 标准化列名
+            column_mapping = {
+                '日期': 'date',
+                'iopv': 'iopv',
+                '净值': 'net_value',
+                '溢价率': 'premium_rate'
+            }
+            existing_columns = [col for col in column_mapping.keys() if col in df.columns]
+            rename_dict = {col: column_mapping[col] for col in existing_columns}
+            df = df.rename(columns=rename_dict)
+            
+            # 确保必要列存在
+            required_columns = ['date', 'iopv', 'net_value', 'premium_rate']
+            for col in required_columns:
+                if col not in df.columns:
+                    df[col] = None
+            
+            # 转换日期格式
+            df['date'] = pd.to_datetime(df['date'])
+            return df
+    except Exception as e:
+        logger.error(f"获取{etf_code}净值数据失败: {str(e)}", exc_info=True)
+        send_wecom_message(f"获取{etf_code}净值数据失败: {str(e)}")
+        return None
