@@ -101,7 +101,7 @@ jobs:
 
   # 9:31 AM：爬取当天新股申购、新上市股票信息
   crawl_new_stock:
-    if: ${{ (github.event_name == 'schedule' && contains('31 1 * * 1-5', github.event.schedule)) }}
+    if: ${{ (github.event_name == 'schedule' && contains(github.event.schedule, '31 1 * * 1-5')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
