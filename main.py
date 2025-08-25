@@ -1158,6 +1158,69 @@ def main():
         print(json.dumps(result, indent=2))
         return result
 
+    elif task == 'test_crawl_small_pool':
+        # T18: 测试爬取小股票池日线数据（仅2只ETF）
+        logger.info("开始执行小股票池日线数据爬取测试...")
+    
+        # 获取小股票池文件路径
+        small_pool_file = os.getenv('SMALL_POOL_FILE', 'data/stock_pool/karmy_etf_list.csv')
+        logger.info(f"使用小股票池文件: {small_pool_file}")
+    
+        # 检查文件是否存在
+        if not os.path.exists(small_pool_file):
+            error_msg = f"【数据错误】小股票池文件不存在: {small_pool_file}"
+            logger.error(error_msg)
+            send_wecom_message(error_msg)
+            return {"status": "error", "message": "Small pool file not found"}
+    
+        # 读取小股票池
+        try:
+            small_etf_list = pd.read_csv(small_pool_file)
+            logger.info(f"成功加载小股票池，包含 {len(small_etf_list)} 只ETF")
+        except Exception as e:
+            error_msg = f"【数据错误】读取小股票池文件失败: {str(e)}"
+            logger.error(error_msg)
+            send_wecom_message(error_msg)
+            return {"status": "error", "message": "Failed to read small pool file"}
+    
+        # 检查小股票池是否为空
+        if small_etf_list.empty:
+            error_msg = "【数据错误】小股票池为空"
+            logger.error(error_msg)
+            send_wecom_message(error_msg)
+            return {"status": "error", "message": "Small pool is empty"}
+    
+        # 爬取小股票池中的ETF数据
+        success_count = 0
+        failed_count = 0
+    
+        for _, etf in small_etf_list.iterrows():
+            etf_code = etf['code']
+            logger.info(f"正在爬取 {etf_code} 的日线数据...")
+        
+            try:
+                # 直接调用get_etf_data
+                data = get_etf_data(etf_code, 'daily')
+                if data is not None and not data.empty:
+                    logger.info(f"成功爬取 {etf_code}，共 {len(data)} 条记录")
+                    success_count += 1
+                else:
+                    logger.warning(f"爬取 {etf_code} 失败：返回空数据")
+                    failed_count += 1
+            except Exception as e:
+                logger.error(f"爬取 {etf_code} 时出错: {str(e)}")
+                failed_count += 1
+    
+        result = {
+            "status": "success" if failed_count == 0 else "partial_success",
+            "success_count": success_count,
+            "failed_count": failed_count,
+            "total_count": len(small_etf_list)
+        }
+    
+        logger.info(f"小股票池日线数据爬取测试完成: 成功 {success_count}, 失败 {failed_count}")
+        return result  
+  
     else:
         error_msg = f"【系统错误】未知任务类型: {task}"
         logger.error(error_msg)
