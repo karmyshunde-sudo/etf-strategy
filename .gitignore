@@ -4,3 +4,6 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+# 允许数据文件
+!data/raw/*.csv
+!data/raw/**/*.csv
