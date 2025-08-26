@@ -110,10 +110,7 @@ jobs:
           
   # 修改后的通用测试任务处理程序（排除 test_crawl_small_pool）
   run_test_tasks:
-    if: ${{ 
-      github.event_name == 'workflow_dispatch' &&
-      github.event.inputs.task != 'test_crawl_small_pool' 
-    }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.task != 'test_crawl_small_pool' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
