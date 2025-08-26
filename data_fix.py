@@ -149,7 +149,13 @@ def get_cache_path(etf_code, data_type='daily'):
     # 直接使用RAW_DATA_DIR，文件名包含data_type后缀
     cache_dir = Config.RAW_DATA_DIR
     os.makedirs(cache_dir, exist_ok=True)
-    return os.path.join(cache_dir, f'{etf_code}_{data_type}.csv')
+    # 添加关键日志，确认实际保存路径
+    cache_path = os.path.join(cache_dir, f'{etf_code}_{data_type}.csv')
+    logger.info(f"【路径确认】将保存文件到: {cache_path}")
+
+    return cache_path
+    #return os.path.join(cache_dir, f'{etf_code}_{data_type}.csv')
+
 
 def load_from_cache(etf_code, data_type='daily', days=365):
     """从缓存加载ETF数据（增强容错性）
