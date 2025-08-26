@@ -83,15 +83,20 @@ def check_data_completeness(df, required_columns=None, min_records=5):
         logger.warning(f"数据量不足，仅 {len(df)} 条记录（需要至少 {min_records} 条）")
         return False
     
-    # 检查关键字段是否为空（增强容错性）
+    # 修复：检查关键字段是否为空（确保得到明确的布尔值）
     for col in required_columns:
         if col in df.columns:
-            # 使用 .any() 而不是直接判断 Series
-            if df[col].isnull().any():
-                logger.warning(f"数据中{col}字段包含空值")
-                # 尝试填充空值
-                df[col].fillna(method='ffill', inplace=True)
-                df[col].fillna(method='bfill', inplace=True)
+            try:
+                # 确保我们得到的是明确的布尔值
+                has_null = bool(df[col].isnull().any())
+                if has_null:
+                    logger.warning(f"数据中{col}字段包含空值")
+                    # 尝试填充空值
+                    df[col].fillna(method='ffill', inplace=True)
+                    df[col].fillna(method='bfill', inplace=True)
+            except Exception as e:
+                logger.error(f"检查{col}字段空值时出错: {str(e)}")
+                return False
     
     return True
 
@@ -212,10 +217,10 @@ def load_from_cache(etf_code, data_type='daily', days=365):
         return None
 
 def save_to_cache(etf_code, data, data_type='daily'):
-    """将ETF数据保存到缓存（增量保存，增强容错性）
+    """将ETF数据保存到缓存（增强容错性）
     参数:
         etf_code: ETF代码
-         DataFrame数据
+        data: DataFrame数据
         data_type: 'daily'或'intraday'
     """
     # 确保etf_code是标准化格式
@@ -225,8 +230,14 @@ def save_to_cache(etf_code, data, data_type='daily'):
         else:
             etf_code = f"sz.{etf_code}"
     
+    # 如果数据为空，创建一个空DataFrame但保留基本结构
     if data is None or data.empty:
-        return False
+        logger.warning(f"数据为空，创建基本结构文件: {etf_code}")
+        # 创建带有基本列的空DataFrame
+        data = pd.DataFrame(columns=['date', 'open', 'high', 'low', 'close', 'volume'])
+        # 添加ETF代码作为元数据
+        data.loc[0, 'etf_code'] = etf_code
+        data.loc[0, 'status'] = 'empty'
     
     cache_path = get_cache_path(etf_code, data_type)
     temp_path = cache_path + '.tmp'
@@ -239,12 +250,16 @@ def save_to_cache(etf_code, data, data_type='daily'):
         if os.path.exists(cache_path):
             existing_data = load_from_cache(etf_code, data_type, days=365)
             if existing_data is not None and not existing_data.empty:
-                combined = pd.concat([existing_data, data])
-                
-                # 去重并按日期排序
-                combined = combined.drop_duplicates(subset=['date'], keep='last')
-                combined = combined.sort_values('date')
-                combined.to_csv(temp_path, index=False, encoding='utf-8')
+                # 如果新数据不为空，则合并
+                if not data.empty and 'date' in data.columns:
+                    combined = pd.concat([existing_data, data])
+                    # 去重并按日期排序
+                    combined = combined.drop_duplicates(subset=['date'], keep='last')
+                    combined = combined.sort_values('date')
+                    combined.to_csv(temp_path, index=False, encoding='utf-8')
+                else:
+                    logger.warning(f"新数据为空或缺少日期列，将覆盖原文件: {cache_path}")
+                    data.to_csv(temp_path, index=False, encoding='utf-8')
             else:
                 logger.warning(f"无法加载原缓存文件，将覆盖原文件: {cache_path}")
                 data.to_csv(temp_path, index=False, encoding='utf-8')
@@ -264,7 +279,7 @@ def save_to_cache(etf_code, data, data_type='daily'):
         # 5. 验证文件内容
         try:
             test_df = pd.read_csv(cache_path)
-            if len(test_df) < len(data):
+            if len(test_df) < len(data) and not data.empty:
                 logger.warning(f"保存的文件 {cache_path} 数据量少于预期 ({len(test_df)}/{len(data)})")
         except Exception as e:
             logger.error(f"验证保存的文件失败: {str(e)}")
@@ -280,6 +295,13 @@ def save_to_cache(etf_code, data, data_type='daily'):
                 os.remove(temp_path)
             except:
                 pass
+        # 确保即使保存失败，也创建一个基本文件
+        try:
+            empty_df = pd.DataFrame({'etf_code': [etf_code], 'status': ['error'], 'error': [str(e)]})
+            empty_df.to_csv(cache_path, index=False)
+            logger.info(f"已创建基本错误文件: {cache_path}")
+        except Exception as e2:
+            logger.error(f"创建基本错误文件失败: {str(e2)}")
         return False
 
 def akshare_retry(func, *args, **kwargs):
