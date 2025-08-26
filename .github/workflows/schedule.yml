@@ -101,12 +101,17 @@ jobs:
           git config user.email "actions@github.com"
 
           echo "检查 data 目录内容..."
-          ls -la data/
-          ls -la data/raw/
+          ls -la data/ 2>/dev/null || echo "data/ 目录不存在"
+          ls -la data/raw/ 2>/dev/null || echo "data/raw/ 目录不存在"
 
           echo "添加数据文件..."
           
-          git add data/
+          # 仅当 data 目录存在时才添加
+          if [ -d "data" ]; then
+            git add data/
+          else
+            echo "data/ 目录不存在，跳过添加"
+          fi
           
           echo "检查暂存区内容..."
           git status
@@ -120,9 +125,7 @@ jobs:
             git push origin main || echo "错误：无法推送到仓库"
           else
             echo "没有数据变更，跳过提交"
-            
-          git commit -m "手动测试：爬取小股票池日线数据 $(date +'%Y-%m-%d %H:%M')" || echo "没有数据变更"
-          git push origin main || echo "Failed to push changes"
+          fi
 
       - name: Verify execution
         run: |
