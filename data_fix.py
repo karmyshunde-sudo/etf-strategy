@@ -8,26 +8,32 @@ import datetime
 import pytz
 import requests
 import json
+import akshare as ak
+import baostock as bs
 import subprocess
 from config import Config
 from logger import get_logger
 from retrying import retry
 
-# 从data_source导入所有数据源爬取函数
-from data_source import (
-    crawl_akshare_primary,
-    crawl_akshare_backup,
-    crawl_baostock,
-    crawl_sina_finance,
-    get_all_etf_list,
-    check_data_completeness,
-    enhance_data_integrity
-)
-
 # 确保所有数据目录存在（关键修复）
 Config.init_directories()
 
 logger = get_logger(__name__)
+
+# 定义统一的中文列名标准
+UNIFIED_COLUMNS = {
+    'date': '日期',
+    'open': '开盘',
+    'high': '最高',
+    'low': '最低',
+    'close': '收盘',
+    'volume': '成交量',
+    'amount': '成交额',
+    'amplitude': '振幅',
+    'change_pct': '涨跌幅',
+    'change_amount': '涨跌额',
+    'turnover_rate': '换手率'
+}
 
 def get_beijing_time():
     """获取北京时间"""
@@ -47,6 +53,105 @@ def is_trading_day():
     # 例如：检查是否为法定节假日
     
     return True
+
+def check_data_completeness(df, required_columns=None, min_records=5):
+    """检查数据完整性（增强容错性）
+    参数:
+        df: DataFrame 数据
+        required_columns: 必需的列名列表
+        min_records: 最小记录数
+    返回:
+        bool: 数据是否完整
+    """
+    if df is None or df.empty:
+        logger.warning("数据为空")
+        return False
+    
+    # 检查必需的列（增强容错性)
+    if required_columns is None:
+        required_columns = list(UNIFIED_COLUMNS.values())
+    
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    if missing_columns:
+        logger.warning(f"数据缺少必要列: {missing_columns}")
+        return False
+    
+    # 检查数据量
+    if len(df) < min_records:
+        logger.warning(f"数据量不足，仅 {len(df)} 条记录（需要至少 {min_records} 条）")
+        return False
+    
+    # 检查关键字段是否为空
+    for col in required_columns:
+        if col in df.columns:
+            try:
+                # 确保我们得到的是明确的布尔值
+                has_null = bool(df[col].isnull().any())
+                if has_null:
+                    logger.warning(f"数据中{col}字段包含空值")
+                    # 尝试填充空值
+                    df[col].fillna(method='ffill', inplace=True)
+                    df[col].fillna(method='bfill', inplace=True)
+            except Exception as e:
+                logger.error(f"检查{col}字段空值时出错: {str(e)}")
+                return False
+    
+    return True
+
+def enhance_data_integrity(df):
+    """增强数据完整性，从已有数据计算缺失指标"""
+    if df is None or df.empty:
+        return df
+    
+    # 确保日期列是datetime类型
+    if UNIFIED_COLUMNS['date'] in df.columns:
+        df[UNIFIED_COLUMNS['date']] = pd.to_datetime(df[UNIFIED_COLUMNS['date']])
+        df = df.sort_values(UNIFIED_COLUMNS['date'])
+    
+    # 计算振幅（如果缺失）
+    if (UNIFIED_COLUMNS['amplitude'] not in df.columns and 
+        UNIFIED_COLUMNS['high'] in df.columns and 
+        UNIFIED_COLUMNS['low'] in df.columns and
+        UNIFIED_COLUMNS['close'] in df.columns):
+        
+        # 计算振幅：(最高价-最低价)/前一日收盘价
+        df[UNIFIED_COLUMNS['amplitude']] = (
+            (df[UNIFIED_COLUMNS['high']] - df[UNIFIED_COLUMNS['low']]) / 
+            df[UNIFIED_COLUMNS['close']].shift(1) * 100
+        ).round(2)
+    
+    # 计算涨跌幅和涨跌额（如果缺失）
+    if (UNIFIED_COLUMNS['change_pct'] not in df.columns and 
+        UNIFIED_COLUMNS['close'] in df.columns):
+        
+        df[UNIFIED_COLUMNS['change_amount']] = df[UNIFIED_COLUMNS['close']] - df[UNIFIED_COLUMNS['close']].shift(1)
+        df[UNIFIED_COLUMNS['change_pct']] = (df[UNIFIED_COLUMNS['change_amount']] / 
+                                           df[UNIFIED_COLUMNS['close']].shift(1) * 100).round(2)
+    
+    # 计算成交额（如果缺失但有成交量和均价）
+    if (UNIFIED_COLUMNS['amount'] not in df.columns and 
+        UNIFIED_COLUMNS['volume'] in df.columns and
+        UNIFIED_COLUMNS['open'] in df.columns and
+        UNIFIED_COLUMNS['high'] in df.columns and
+        UNIFIED_COLUMNS['low'] in df.columns and
+        UNIFIED_COLUMNS['close'] in df.columns):
+        
+        # 近似计算：(开盘+最高+最低+收盘)/4 * 成交量
+        avg_price = (df[UNIFIED_COLUMNS['open']] + df[UNIFIED_COLUMNS['high']] + 
+                    df[UNIFIED_COLUMNS['low']] + df[UNIFIED_COLUMNS['close']]) / 4
+        df[UNIFIED_COLUMNS['amount']] = avg_price * df[UNIFIED_COLUMNS['volume']]
+    
+    # 计算换手率（如果缺失但有成交额和流通市值）
+    if (UNIFIED_COLUMNS['turnover_rate'] not in df.columns and 
+        UNIFIED_COLUMNS['amount'] in df.columns):
+        
+        # 假设流通市值为常数（实际应用中需要获取真实数据）
+        if UNIFIED_COLUMNS['close'] in df.columns and UNIFIED_COLUMNS['volume'] in df.columns:
+            circulating_market_cap = df[UNIFIED_COLUMNS['close']] * df[UNIFIED_COLUMNS['volume']].mean() * 0.5
+            df[UNIFIED_COLUMNS['turnover_rate']] = (df[UNIFIED_COLUMNS['amount']] / 
+                                                 circulating_market_cap * 100).round(2)
+    
+    return df
 
 def get_cache_path(etf_code, data_type='daily'):
     """
@@ -174,7 +279,7 @@ def save_to_cache(etf_code, data, data_type='daily'):
                 combined = combined.sort_values('日期')
                 
                 # 仅保留统一列名
-                combined = combined[[col for col in list(UNIFIED_COLUMNS.values()) if col in combined.columns]]
+                combined = combined[[col for col in UNIFIED_COLUMNS.values() if col in combined.columns]]
                 
                 combined.to_csv(temp_path, index=False, encoding='utf-8')
             else:
@@ -213,6 +318,566 @@ def save_to_cache(etf_code, data, data_type='daily'):
             except:
                 pass
         return False
+
+def akshare_retry(func, *args, **kwargs):
+    """AkShare请求重试机制（增强容错性）"""
+    max_attempts = 3
+    for attempt in range(max_attempts):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            if attempt < max_attempts - 1:
+                wait_time = 2 ** attempt  # 指数退避
+                logger.warning(f"AkShare请求失败，{wait_time}秒后重试 ({attempt+1}/{max_attempts}): {str(e)}")
+                time.sleep(wait_time)
+            else:
+                logger.error(f"AkShare请求失败，已达到最大重试次数: {str(e)}")
+                raise
+
+def crawl_akshare_primary(etf_code, start_date=None):
+    """从AkShare主接口爬取ETF数据
+    参数:
+        etf_code: ETF代码
+        start_date: 开始日期（可选）
+    返回:
+        DataFrame: ETF数据或None（如果失败）"""
+    try:
+        # 提取纯代码（无sh./sz.前缀）
+        pure_code = etf_code.replace('sh.', '').replace('sz.', '')
+        
+        logger.info(f"尝试从AkShare主接口获取{etf_code}日线数据...")
+        logger.info(f"AkShare接口: ak.fund_etf_hist_em(symbol='{pure_code}', period='daily', adjust='qfq')")
+        
+        # 尝试主接口
+        df = akshare_retry(ak.fund_etf_hist_em, symbol=pure_code, period='daily', adjust='qfq')
+        
+        # 添加关键日志 - 检查AkShare返回
+        if df is not None and not df.empty:
+            logger.info(f"AkShare返回ETF数据列数: {len(df.columns)}")
+            logger.info(f"AkShare返回ETF数据记录数: {len(df)}")
+            logger.info(f"AkShare返回ETF数据列名: {df.columns.tolist()}")
+        else:
+            logger.warning("AkShare fund_etf_hist_em 返回空数据")
+            return None
+        
+        # 统一列名
+        column_mapping = {
+            '日期': UNIFIED_COLUMNS['date'],
+            '开盘': UNIFIED_COLUMNS['open'],
+            '最高': UNIFIED_COLUMNS['high'],
+            '最低': UNIFIED_COLUMNS['low'],
+            '收盘': UNIFIED_COLUMNS['close'],
+            '成交量': UNIFIED_COLUMNS['volume'],
+            '成交额': UNIFIED_COLUMNS['amount'],
+            '振幅': UNIFIED_COLUMNS['amplitude'],
+            '涨跌幅': UNIFIED_COLUMNS['change_pct'],
+            '涨跌额': UNIFIED_COLUMNS['change_amount'],
+            '换手率': UNIFIED_COLUMNS['turnover_rate']
+        }
+        
+        # 选择存在的列
+        existing_columns = [col for col in column_mapping.keys() if col in df.columns]
+        rename_dict = {col: column_mapping[col] for col in existing_columns}
+        
+        # 重命名列
+        df = df.rename(columns=rename_dict)
+        
+        # 确保必要列存在
+        required_columns = list(UNIFIED_COLUMNS.values())
+        for col in required_columns:
+            if col not in df.columns:
+                # 尝试从其他列映射
+                if col == UNIFIED_COLUMNS['volume'] and UNIFIED_COLUMNS['amount'] in df.columns:
+                    df[UNIFIED_COLUMNS['volume']] = df[UNIFIED_COLUMNS['amount']]
+        
+        # 将日期转换为datetime
+        if UNIFIED_COLUMNS['date'] in df.columns:
+            try:
+                df[UNIFIED_COLUMNS['date']] = pd.to_datetime(df[UNIFIED_COLUMNS['date']])
+            except Exception as e:
+                logger.error(f"日期转换失败: {str(e)}")
+                return None
+        
+        # 如果指定了起始日期，筛选数据
+        if start_date:
+            try:
+                start_date_dt = pd.to_datetime(start_date)
+                df = df[df[UNIFIED_COLUMNS['date']] >= start_date_dt]
+            except Exception as e:
+                logger.error(f"日期筛选失败: {str(e)}")
+        
+        # 按日期排序
+        if UNIFIED_COLUMNS['date'] in df.columns:
+            df = df.sort_values(UNIFIED_COLUMNS['date'])
+        
+        # 检查数据完整性
+        if check_data_completeness(df):
+            logger.info(f"成功从AkShare主接口获取{etf_code}日线数据")
+            return df
+        else:
+            logger.warning(f"AkShare主接口返回的{etf_code}数据不完整，但尝试使用")
+            return df
+    except Exception as e:
+        logger.error(f"AkShare主接口获取{etf_code}数据失败: {str(e)}", exc_info=True)
+        return None
+
+def crawl_akshare_backup(etf_code, start_date=None):
+    """从AkShare备用接口爬取ETF数据
+    参数:
+        etf_code: ETF代码
+        start_date: 开始日期（可选）
+    返回:
+        DataFrame: ETF数据或None（如果失败）"""
+    try:
+        # 提取纯代码（无sh./sz.前缀）
+        pure_code = etf_code.replace('sh.', '').replace('sz.', '')
+        
+        logger.info(f"尝试从AkShare备用接口获取{etf_code}日线数据...")
+        logger.info(f"AkShare接口: ak.fund_etf_hist_sina(symbol='{pure_code}')")
+        
+        # 尝试备用接口
+        df = akshare_retry(ak.fund_etf_hist_sina, symbol=pure_code)
+        
+        # 添加关键日志 - 检查AkShare返回
+        if df is not None and not df.empty:
+            logger.info(f"AkShare备用接口返回ETF数据列数: {len(df.columns)}")
+            logger.info(f"AkShare备用接口返回ETF数据记录数: {len(df)}")
+            logger.info(f"AkShare备用接口返回ETF数据列名: {df.columns.tolist()}")
+        else:
+            logger.warning("AkShare fund_etf_hist_sina 返回空数据")
+            return None
+        
+        # 统一列名
+        column_mapping = {
+            '日期': UNIFIED_COLUMNS['date'],
+            '开盘': UNIFIED_COLUMNS['open'],
+            '最高': UNIFIED_COLUMNS['high'],
+            '最低': UNIFIED_COLUMNS['low'],
+            '收盘': UNIFIED_COLUMNS['close'],
+            '成交量': UNIFIED_COLUMNS['volume'],
+            '成交额': UNIFIED_COLUMNS['amount']
+        }
+        
+        # 选择存在的列
+        existing_columns = [col for col in column_mapping.keys() if col in df.columns]
+        rename_dict = {col: column_mapping[col] for col in existing_columns}
+        
+        # 重命名列
+        df = df.rename(columns=rename_dict)
+        
+        # 确保必要列存在
+        required_columns = list(UNIFIED_COLUMNS.values())
+        for col in required_columns:
+            if col not in df.columns:
+                # 尝试从其他列映射
+                if col == UNIFIED_COLUMNS['volume'] and UNIFIED_COLUMNS['amount'] in df.columns:
+                    df[UNIFIED_COLUMNS['volume']] = df[UNIFIED_COLUMNS['amount']]
+        
+        # 将日期转换为datetime
+        if UNIFIED_COLUMNS['date'] in df.columns:
+            try:
+                df[UNIFIED_COLUMNS['date']] = pd.to_datetime(df[UNIFIED_COLUMNS['date']])
+            except Exception as e:
+                logger.error(f"日期转换失败: {str(e)}")
+                return None
+        
+        # 如果指定了起始日期，筛选数据
+        if start_date:
+            try:
+                start_date_dt = pd.to_datetime(start_date)
+                df = df[df[UNIFIED_COLUMNS['date']] >= start_date_dt]
+            except Exception as e:
+                logger.error(f"日期筛选失败: {str(e)}")
+        
+        # 按日期排序
+        if UNIFIED_COLUMNS['date'] in df.columns:
+            df = df.sort_values(UNIFIED_COLUMNS['date'])
+        
+        # 增强数据完整性，计算缺失指标
+        df = enhance_data_integrity(df)
+        
+        # 检查数据完整性
+        if check_data_completeness(df):
+            logger.info(f"成功从AkShare备用接口获取{etf_code}日线数据")
+            return df
+        else:
+            logger.warning(f"AkShare备用接口返回的{etf_code}数据不完整，但尝试使用")
+            return df
+    except Exception as e:
+        logger.error(f"AkShare备用接口获取{etf_code}数据失败: {str(e)}", exc_info=True)
+        return None
+
+def crawl_baostock(etf_code, start_date=None):
+    """从Baostock爬取ETF数据
+    参数:
+        etf_code: ETF代码
+        start_date: 开始日期（可选）
+    返回:
+        DataFrame: ETF数据或None（如果失败）"""
+    try:
+        # 提取纯代码（无sh./sz.前缀）
+        pure_code = etf_code.replace('sh.', '').replace('sz.', '')
+        
+        logger.info(f"尝试从Baostock获取{etf_code}日线数据...")
+        
+        # 登录Baostock
+        lg = bs.login()
+        if lg.error_code != '0':
+            logger.warning(f"Baostock登录失败: {lg.error_msg}")
+            raise Exception("Baostock登录失败")
+        
+        # 获取更多字段：增加成交额(amount)、涨跌幅(percent)、换手率(turn)
+        fields = "date,open,high,low,close,volume,amount,change,percent,turn"
+        
+        # 如果有缓存，只获取新数据；否则获取最近100天数据
+        if start_date:
+            start_date_str = start_date
+            end_date_str = datetime.datetime.now().strftime('%Y-%m-%d')
+        else:
+            start_date_str = (datetime.datetime.now() - datetime.timedelta(days=100)).strftime('%Y-%m-%d')
+            end_date_str = datetime.datetime.now().strftime('%Y-%m-%d')
+        
+        # 获取日线数据 - 请求更多字段
+        rs = bs.query_history_k_data_plus(
+            pure_code,
+            fields,
+            start_date=start_date_str,
+            end_date=end_date_str,
+            frequency="d", 
+            adjustflag="3"
+        )
+        if rs.error_code != '0':
+            logger.error(f"Baostock查询失败: {rs.error_msg}")
+            bs.logout()
+            raise Exception("Baostock查询失败")
+        
+        # 转换为DataFrame
+        df = rs.get_data()
+        bs.logout()  # 使用后登出
+        
+        if not df.empty:
+            # 统一列名
+            column_mapping = {
+                'date': UNIFIED_COLUMNS['date'],
+                'open': UNIFIED_COLUMNS['open'],
+                'high': UNIFIED_COLUMNS['high'],
+                'low': UNIFIED_COLUMNS['low'],
+                'close': UNIFIED_COLUMNS['close'],
+                'volume': UNIFIED_COLUMNS['volume'],
+                'amount': UNIFIED_COLUMNS['amount'],
+                'percent': UNIFIED_COLUMNS['change_pct'],
+                'change': UNIFIED_COLUMNS['change_amount'],
+                'turn': UNIFIED_COLUMNS['turnover_rate']
+            }
+            
+            # 选择存在的列
+            existing_columns = [col for col in column_mapping.keys() if col in df.columns]
+            rename_dict = {col: column_mapping[col] for col in existing_columns}
+            
+            # 重命名列
+            df = df.rename(columns=rename_dict)
+            
+            # 转换数据类型
+            df[UNIFIED_COLUMNS['date']] = pd.to_datetime(df[UNIFIED_COLUMNS['date']])
+            numeric_cols = [col for col in UNIFIED_COLUMNS.values() 
+                           if col in df.columns and col != UNIFIED_COLUMNS['date']]
+            df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors='coerce')
+            
+            # 计算缺失指标（如果存在基础数据）
+            if UNIFIED_COLUMNS['high'] in df.columns and UNIFIED_COLUMNS['low'] in df.columns:
+                # 计算振幅：(最高价-最低价)/前一日收盘价
+                if UNIFIED_COLUMNS['close'] in df.columns:
+                    df[UNIFIED_COLUMNS['amplitude']] = (
+                        (df[UNIFIED_COLUMNS['high']] - df[UNIFIED_COLUMNS['low']]) / 
+                        df[UNIFIED_COLUMNS['close']].shift(1) * 100
+                    ).round(2)
+            
+            # 按日期排序
+            df = df.sort_values(UNIFIED_COLUMNS['date'])
+            
+            # 检查数据完整性
+            if check_data_completeness(df):
+                logger.info(f"成功从Baostock获取{etf_code}日线数据（{len(df)}条记录）")
+                return df
+            else:
+                logger.warning(f"Baostock返回的{etf_code}数据不完整，但将尝试使用")
+                return df
+        else:
+            logger.warning("Baostock返回空ETF数据")
+            return None
+    except Exception as e:
+        logger.error(f"Baostock获取{etf_code}数据失败: {str(e)}", exc_info=True)
+        return None
+
+def crawl_sina_finance(etf_code, start_date=None):
+    """从新浪财经爬取ETF数据
+    参数:
+        etf_code: ETF代码
+        start_date: 开始日期（可选）
+    返回:
+        DataFrame: ETF数据或None（如果失败）"""
+    try:
+        # 修正交易所前缀
+        if etf_code.startswith(('sh.', 'sz.')):
+            full_code = etf_code.replace('.', '')
+        elif etf_code.startswith('5'):
+            full_code = f"sh{etf_code}"
+        else:
+            full_code = f"sz{etf_code}"
+        
+        logger.info(f"尝试从新浪财经获取{etf_code}日线数据...")
+        
+        # 使用更全面的API端点
+        sina_url = f"http://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={full_code}&scale=240&ma=no&datalen=100"
+        
+        response = requests.get(sina_url, timeout=15, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        })
+        response.raise_for_status()
+        
+        data = response.json()
+        # 修复：检查数据是否有效
+        if data and isinstance(data, list) and len(data) > 0:
+            df = pd.DataFrame(data)
+            
+            # 统一列名
+            column_mapping = {
+                'day': UNIFIED_COLUMNS['date'],
+                'open': UNIFIED_COLUMNS['open'],
+                'high': UNIFIED_COLUMNS['high'],
+                'low': UNIFIED_COLUMNS['low'],
+                'close': UNIFIED_COLUMNS['close'],
+                'volume': UNIFIED_COLUMNS['volume'],
+                'amount': UNIFIED_COLUMNS['amount'],
+                'amplitude': UNIFIED_COLUMNS['amplitude'],
+                'change_pct': UNIFIED_COLUMNS['change_pct'],
+                'change_amount': UNIFIED_COLUMNS['change_amount'],
+                'turnover_rate': UNIFIED_COLUMNS['turnover_rate']
+            }
+            
+            # 选择存在的列
+            existing_columns = [col for col in column_mapping.keys() if col in df.columns]
+            rename_dict = {col: column_mapping[col] for col in existing_columns}
+            
+            # 重命名列
+            df = df.rename(columns=rename_dict)
+            
+            # 转换数据类型
+            df[UNIFIED_COLUMNS['date']] = pd.to_datetime(df[UNIFIED_COLUMNS['date']])
+            numeric_cols = [col for col in UNIFIED_COLUMNS.values() 
+                           if col in df.columns and col != UNIFIED_COLUMNS['date']]
+            df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors='coerce')
+            
+            # 计算缺失指标
+            if UNIFIED_COLUMNS['high'] in df.columns and UNIFIED_COLUMNS['low'] in df.columns:
+                # 计算振幅
+                if UNIFIED_COLUMNS['close'] in df.columns:
+                    df[UNIFIED_COLUMNS['amplitude']] = (
+                        (df[UNIFIED_COLUMNS['high']] - df[UNIFIED_COLUMNS['low']]) / 
+                        df[UNIFIED_COLUMNS['close']].shift(1) * 100
+                    ).round(2)
+            
+            # 计算涨跌幅和涨跌额（如果缺失）
+            if UNIFIED_COLUMNS['close'] in df.columns and UNIFIED_COLUMNS['change_pct'] not in df.columns:
+                df[UNIFIED_COLUMNS['change_amount']] = df[UNIFIED_COLUMNS['close']] - df[UNIFIED_COLUMNS['close']].shift(1)
+                df[UNIFIED_COLUMNS['change_pct']] = (df[UNIFIED_COLUMNS['change_amount']] / 
+                                                   df[UNIFIED_COLUMNS['close']].shift(1) * 100).round(2)
+            
+            # 按日期排序
+            df = df.sort_values(UNIFIED_COLUMNS['date'])
+            
+            # 检查数据完整性
+            if check_data_completeness(df):
+                logger.info(f"成功从新浪财经获取{etf_code}日线数据（{len(df)}条记录）")
+                return df
+            else:
+                logger.warning(f"新浪财经返回的{etf_code}数据不完整，但将尝试使用")
+                return df
+        else:
+            logger.warning("新浪财经返回空ETF数据")
+            return None
+    except Exception as e:
+        logger.error(f"新浪财经获取{etf_code}数据失败: {str(e)}", exc_info=True)
+        return None
+
+def get_all_etf_list():
+    """从多数据源获取所有ETF列表（增强容错性）
+    返回:
+        DataFrame: ETF列表，包含代码和名称
+    """
+    # 尝试AkShare主接口（实时ETF列表）
+    try:
+        logger.info("尝试从AkShare获取ETF列表...")
+        logger.info("AkShare接口: ak.fund_etf_spot_em()")
+        # 使用 fund_etf_spot_em 获取实时ETF列表
+        df = ak.fund_etf_spot_em()
+        
+        # 添加关键日志 - 检查AkShare返回
+        if df is not None and not df.empty:
+            logger.info(f"AkShare返回ETF列表数据列数: {len(df.columns)}")
+            logger.info(f"AkShare返回ETF列表数据记录数: {len(df)}")
+            logger.info(f"AkShare返回ETF列表数据列名: {df.columns.tolist()}")
+        else:
+            logger.warning("AkShare fund_etf_spot_em 返回空数据")
+        
+        if df is None or df.empty:
+            logger.warning("AkShare fund_etf_spot_em返回空数据，尝试备用接口...")
+            # 尝试备用接口 fund_etf_hist_sina
+            logger.info("AkShare接口: ak.fund_etf_hist_sina(symbol='etf')")
+            df = ak.fund_etf_hist_sina(symbol="etf")
+            
+            # 添加关键日志 - 检查备用接口返回
+            if df is not None and not df.empty:
+                logger.info(f"AkShare备用接口返回ETF列表数据列数: {len(df.columns)}")
+                logger.info(f"AkShare备用接口返回ETF列表数据记录数: {len(df)}")
+                logger.info(f"AkShare备用接口返回ETF列表数据列名: {df.columns.tolist()}")
+            else:
+                logger.warning("AkShare备用接口返回空ETF列表")
+        
+        if df is not None and not df.empty:
+            # 动态匹配列名 - 增强容错能力
+            code_col = next((col for col in df.columns 
+                           if any(kw in col.lower() for kw in ['代码', 'symbol', 'code'])), None)
+            name_col = next((col for col in df.columns 
+                           if any(kw in col.lower() for kw in ['名称', 'name', '简称'])), None)
+            
+            if code_col and name_col:
+                # 确保代码列是字符串类型
+                df[code_col] = df[code_col].astype(str)
+                
+                # 创建ETF列表DataFrame
+                etf_list = pd.DataFrame()
+                etf_list['code'] = df[code_col].apply(
+                    lambda x: f"sh.{x}" if str(x).startswith('5') else f"sz.{x}"
+                )
+                etf_list['name'] = df[name_col]
+                
+                logger.info(f"从AkShare成功获取 {len(etf_list)} 只ETF")
+                return etf_list
+            else:
+                logger.error(f"AkShare返回数据缺少必要列: {df.columns.tolist()}")
+                logger.error(f"期望的列: 代码列 - {code_col}, 名称列 - {name_col}")
+        else:
+            logger.warning("AkShare返回空ETF列表")
+    except Exception as e:
+        logger.error(f"AkShare获取ETF列表失败: {str(e)}", exc_info=True)
+    
+    # 尝试Baostock（使用兼容性更强的接口）
+    try:
+        logger.info("尝试从Baostock获取ETF列表...")
+        logger.info("Baostock接口: bs.query_all_stock()")
+        lg = bs.login()
+        if lg.error_code != '0':
+            logger.warning(f"Baostock登录失败: {lg.error_msg}")
+            raise Exception("Baostock登录失败")
+        
+        rs = bs.query_all_stock()
+        df = rs.get_data()
+        bs.logout()
+        
+        if df is not None and not df.empty:
+            # 过滤出ETF
+            etf_list = df[df['type'] == '1']
+            if not etf_list.empty:
+                # 创建ETF列表DataFrame
+                etf_list = pd.DataFrame({
+                    'code': etf_list['code'].apply(lambda x: f"sh.{x}" if x.startswith('5') else f"sz.{x}"),
+                    'name': etf_list['code_name']
+                })
+                logger.info(f"从Baostock成功获取 {len(etf_list)} 只ETF")
+                return etf_list
+    except Exception as e:
+        logger.error(f"Baostock获取ETF列表失败: {str(e)}", exc_info=True)
+    
+    # 尝试新浪财经备用接口
+    try:
+        logger.info("尝试从新浪财经获取ETF列表...")
+        logger.info("新浪财经接口: http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getETFList")
+        url = "http://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getETFList"
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            try:
+                data = json.loads(response.text)
+                
+                # 修复：检查data的类型
+                logger.info(f"新浪财经返回数据类型: {type(data)}")
+                
+                # 处理可能的字典类型数据
+                if isinstance(data, dict):
+                    # 检查是否有data字段
+                    if 'data' in data and 'list' in data['data']:
+                        data = data['data']['list']
+                        logger.info(f"从字典中提取列表数据，记录数: {len(data)}")
+                
+                # 处理列表类型数据
+                if isinstance(data, list) and len(data) > 0:
+                    logger.info(f"新浪财经返回ETF列表数据记录数: {len(data)}")
+                    
+                    # 检查数据结构
+                    sample = data[0]
+                    logger.info(f"新浪财经返回数据示例: {sample}")
+                    
+                    # 动态匹配symbol和name字段
+                    symbol_col = next((k for k in sample.keys() if 'symbol' in k.lower()), None)
+                    name_col = next((k for k in sample.keys() if 'name' in k.lower()), None)
+                    
+                    if symbol_col and name_col:
+                        etf_list = pd.DataFrame(data)
+                        etf_list['code'] = etf_list[symbol_col].apply(
+                            lambda x: f"sh.{x}" if str(x).startswith('5') else f"sz.{x}"
+                        )
+                        etf_list = etf_list.rename(columns={name_col: 'name'})
+                        etf_list = etf_list[['code', 'name']]
+                        
+                        logger.info(f"从新浪财经成功获取 {len(etf_list)} 只ETF")
+                        return etf_list
+                    else:
+                        logger.warning("新浪财经返回数据缺少symbol或name字段")
+                else:
+                    logger.warning("新浪财经返回空数据或格式不正确")
+            except Exception as e:
+                logger.error(f"处理新浪财经返回数据时出错: {str(e)}", exc_info=True)
+        else:
+            logger.warning(f"新浪财经请求失败，状态码: {response.status_code}")
+    except Exception as e:
+        logger.error(f"新浪财经获取ETF列表失败: {str(e)}", exc_info=True)
+    
+    # 新增：尝试从兜底CSV文件获取ETF列表
+    fallback_csv_path = os.path.join(Config.STOCK_POOL_DIR, 'fallback_etf_list.csv')
+    try:
+        if os.path.exists(fallback_csv_path):
+            logger.info(f"尝试从兜底CSV文件加载ETF列表: {fallback_csv_path}")
+            etf_list = pd.read_csv(fallback_csv_path)
+            
+            # 验证数据格式
+            if 'code' in etf_list.columns and 'name' in etf_list.columns:
+                logger.info(f"成功从兜底CSV文件加载 {len(etf_list)} 只ETF")
+                return etf_list
+            else:
+                logger.error(f"兜底CSV文件格式不正确，缺少必要列: {etf_list.columns.tolist()}")
+        else:
+            logger.warning(f"兜底CSV文件不存在: {fallback_csv_path}")
+    except Exception as e:
+        logger.error(f"读取兜底CSV文件失败: {str(e)}", exc_info=True)
+    
+    # 如果所有数据源都失败，返回一个最小的ETF列表（作为最后的兜底）
+    logger.warning("所有数据源都失败，使用最小ETF列表作为兜底")
+    fallback_etfs = [
+        {'code': 'sh.510050', 'name': '上证50ETF'},
+        {'code': 'sh.510300', 'name': '沪深300ETF'},
+        {'code': 'sh.510500', 'name': '中证500ETF'},
+        {'code': 'sh.588940', 'name': '科创100ETF'},
+        {'code': 'sh.588000', 'name': '科创50ETF'},
+        {'code': 'sh.588080', 'name': '科创板50ETF'},
+        {'code': 'sh.588900', 'name': '科创创业50ETF'},
+        {'code': 'sh.588950', 'name': '科创创业50ETF'},
+        {'code': 'sh.588990', 'name': '科创板芯片ETF'},
+        {'code': 'sh.588120', 'name': '科创板新材料ETF'},
+        {'code': 'sh.588400', 'name': '科创板人工智能ETF'},
+        {'code': 'sh.588050', 'name': '科创生物医药ETF'}
+    ]
+    logger.info(f"使用兜底ETF列表，包含 {len(fallback_etfs)} 只ETF")
+    return pd.DataFrame(fallback_etfs)
 
 def get_etf_data(etf_code, data_type='daily', start_date=None):
     """从多数据源获取ETF数据（增量获取，增强容错性）
@@ -285,33 +950,34 @@ def get_new_stock_subscriptions(test=False):
         
         for date_obj in dates_to_try:
             date_str = date_obj.strftime('%Y-%m-%d')
-            logger.info(f"{'测试模式' if test else '正常模式'}: 尝试获取 {date_str} 的新上市交易数据")
+            logger.info(f"{'测试模式' if test else '正常模式'}: 尝试获取 {date_str} 的新股申购数据")
             
             # 尝试AkShare（主数据源）
             try:
-                logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从AkShare获取新上市交易信息...")
+                logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从AkShare获取新股申购信息...")
                 logger.info(f"AkShare接口: ak.stock_xgsglb_em()")
-                df = ak.stock_xgsglb_em()
+                df = akshare_retry(ak.stock_xgsglb_em)
+                
                 if not df.empty:
                     # 仅记录列名信息
-                    logger.info(f"AkShare返回新上市交易数据列数: {len(df.columns)}")
-                    logger.info(f"AkShare返回新上市交易数据记录数: {len(df)}")
-                    logger.info(f"AkShare返回新上市交易数据列名: {df.columns.tolist()}")
+                    logger.info(f"AkShare返回新股数据列数: {len(df.columns)}")
+                    logger.info(f"AkShare返回新股数据记录数: {len(df)}")
+                    logger.info(f"AkShare返回新股数据列名: {df.columns.tolist()}")
                     
-                    # 动态匹配上市日期列
-                    listing_date_col = next((col for col in df.columns 
-                                           if any(kw in col.lower() for kw in ['上市日期', 'listing_date'])), None)
+                    # 动态匹配日期列
+                    date_col = next((col for col in df.columns 
+                                   if any(kw in col.lower() for kw in ['申购日期', 'ipo_date', 'issue_date'])), None)
                     
-                    if listing_date_col and listing_date_col in df.columns:
+                    if date_col and date_col in df.columns:
                         # 确保日期列是正确格式
-                        if not pd.api.types.is_datetime64_any_dtype(df[listing_date_col]):
+                        if not pd.api.types.is_datetime64_any_dtype(df[date_col]):
                             try:
-                                df[listing_date_col] = pd.to_datetime(df[listing_date_col]).dt.strftime('%Y-%m-%d')
+                                df[date_col] = pd.to_datetime(df[date_col]).dt.strftime('%Y-%m-%d')
                             except:
                                 pass
                         
                         # 筛选目标日期数据
-                        df = df[df[listing_date_col] == date_str]
+                        df = df[df[date_col] == date_str]
                         if not df.empty:
                             # 尝试修复列名
                             code_col = next((col for col in df.columns 
@@ -320,6 +986,8 @@ def get_new_stock_subscriptions(test=False):
                                            if any(kw in col.lower() for kw in ['名称', 'name', '简称'])), None)
                             price_col = next((col for col in df.columns 
                                             if any(kw in col.lower() for kw in ['价格', 'price'])), None)
+                            limit_col = next((col for col in df.columns 
+                                            if any(kw in col.lower() for kw in ['上限', 'limit'])), None)
                             
                             if code_col and name_col:
                                 valid_df = df[[code_col, name_col]].copy()
@@ -327,22 +995,24 @@ def get_new_stock_subscriptions(test=False):
                                 
                                 if price_col:
                                     valid_df['发行价格'] = df[price_col]
+                                if limit_col:
+                                    valid_df['申购上限'] = df[limit_col]
                                 
-                                valid_df['上市日期'] = date_str
+                                valid_df['申购日期'] = date_str
                                 valid_df['类型'] = '股票'
                                 
                                 # 检查数据完整性
-                                if check_new_listing_completeness(valid_df):
-                                    logger.info(f"{'测试模式' if test else '正常模式'}: 从AkShare成功获取 {len(valid_df)} 条新上市交易信息")
-                                    return valid_df[['股票代码', '股票简称', '发行价格', '上市日期', '类型']]
+                                if check_new_stock_completeness(valid_df):
+                                    logger.info(f"{'测试模式' if test else '正常模式'}: 从AkShare成功获取 {len(valid_df)} 条新股申购信息")
+                                    return valid_df[['股票代码', '股票简称', '发行价格', '申购上限', '申购日期', '类型']]
                                 else:
-                                    logger.warning(f"{'测试模式' if test else '正常模式'}: AkShare返回的新上市交易数据不完整，将尝试备用数据源...")
+                                    logger.warning(f"{'测试模式' if test else '正常模式'}: AkShare返回的新股数据不完整，将尝试备用数据源...")
             except Exception as e:
-                logger.error(f"{'测试模式' if test else '正常模式'}: AkShare获取新上市交易信息失败: {str(e)}", exc_info=True)
+                logger.error(f"{'测试模式' if test else '正常模式'}: AkShare获取新股信息失败: {str(e)}", exc_info=True)
             
             # 尝试Baostock（备用数据源）
             try:
-                logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从Baostock获取新上市交易信息...")
+                logger.info(f"{'测试模式' if test else '正常模式'}: 尝试从Baostock获取新股申购信息...")
                 lg = bs.login()
                 if lg.error_code != '0':
                     logger.warning(f"Baostock登录失败: {lg.error_msg}")
@@ -359,22 +1029,23 @@ def get_new_stock_subscriptions(test=False):
                         df = pd.DataFrame(data_list, columns=rs.fields)
                         if not df.empty:
                             # 标准化日期格式
-                            df['list_date'] = pd.to_datetime(df['list_date']).dt.strftime('%Y-%m-%d')
-                            df = df[df['list_date'] == date_str]
+                            df['ipoDate'] = pd.to_datetime(df['ipoDate']).dt.strftime('%Y-%m-%d')
+                            df = df[df['ipoDate'] == date_str]
                             if not df.empty:
                                 # 重命名列以匹配股票格式
                                 df = df.rename(columns={
                                     'code': '股票代码',
                                     'code_name': '股票简称',
-                                    'issue_price': '发行价格',
-                                    'list_date': '上市日期'
+                                    'price': '发行价格',
+                                    'max_purchase': '申购上限',
+                                    'ipoDate': '申购日期'
                                 })
                                 df['类型'] = '股票'
                                 
                                 # 检查数据完整性
-                                if check_new_listing_completeness(df):
-                                    logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(df)} 条新上市交易信息")
-                                    return df[['股票代码', '股票简称', '发行价格', '上市日期', '类型']]
+                                if check_new_stock_completeness(df):
+                                    logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(df)} 条新股申购信息")
+                                    return df[['股票代码', '股票简称', '发行价格', '申购上限', '申购日期', '类型']]
                 except AttributeError:
                     pass
                 
@@ -389,37 +1060,38 @@ def get_new_stock_subscriptions(test=False):
                         df = pd.DataFrame(data_list, columns=rs.fields)
                         if not df.empty:
                             # 标准化日期格式
-                            df['list_date'] = pd.to_datetime(df['list_date']).dt.strftime('%Y-%m-%d')
-                            df = df[df['list_date'] == date_str]
+                            df['ipoDate'] = pd.to_datetime(df['ipoDate']).dt.strftime('%Y-%m-%d')
+                            df = df[df['ipoDate'] == date_str]
                             if not df.empty:
                                 # 重命名列以匹配股票格式
                                 df = df.rename(columns={
                                     'code': '股票代码',
                                     'code_name': '股票简称',
-                                    'issue_price': '发行价格',
-                                    'list_date': '上市日期'
+                                    'price': '发行价格',
+                                    'max_purchase': '申购上限',
+                                    'ipoDate': '申购日期'
                                 })
                                 df['类型'] = '股票'
                                 
                                 # 检查数据完整性
-                                if check_new_listing_completeness(df):
-                                    logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(df)} 条新上市交易信息")
-                                    return df[['股票代码', '股票简称', '发行价格', '上市日期', '类型']]
+                                if check_new_stock_completeness(df):
+                                    logger.info(f"{'测试模式' if test else '正常模式'}: 从Baostock成功获取 {len(df)} 条新股申购信息")
+                                    return df[['股票代码', '股票简称', '发行价格', '申购上限', '申购日期', '类型']]
                 except AttributeError:
                     pass
             except Exception as e:
-                logger.error(f"{'测试模式' if test else '正常模式'}: Baostock获取新上市交易信息失败: {str(e)}", exc_info=True)
+                logger.error(f"{'测试模式' if test else '正常模式'}: Baostock获取新股信息失败: {str(e)}", exc_info=True)
             finally:
                 try:
                     bs.logout()
                 except:
                     pass
         
-        logger.info(f"{'测试模式' if test else '正常模式'}: 未找到新上市交易数据")
+        logger.info(f"{'测试模式' if test else '正常模式'}: 未找到新股数据")
         return pd.DataFrame()
         
     except Exception as e:
-        error_msg = f"{'测试模式' if test else '正常模式'}: 【数据错误】获取新上市交易信息失败: {str(e)}"
+        error_msg = f"{'测试模式' if test else '正常模式'}: 【数据错误】获取新股申购信息失败: {str(e)}"
         logger.error(error_msg, exc_info=True)
         send_wecom_message(error_msg)
         return pd.DataFrame()
@@ -1063,84 +1735,3 @@ def crawl_etf_data(data_type='daily'):
         logger.error(error_msg)
         send_wecom_message(error_msg)
         return {"status": "error", "message": str(e)}
-
-def read_new_stock_pushed_flag(date):
-    """读取新股信息是否已推送标志"""
-    flag_path = os.path.join(Config.NEW_STOCK_DIR, f'new_stock_pushed_{date.strftime("%Y%m%d")}.flag')
-    is_pushed = os.path.exists(flag_path)
-    return flag_path, is_pushed
-
-def mark_new_stock_info_pushed():
-    """标记新股信息已推送"""
-    flag_path, _ = read_new_stock_pushed_flag(get_beijing_time().date())
-    with open(flag_path, 'w') as f:
-        f.write(get_beijing_time().strftime('%Y-%m-%d %H:%M:%S'))
-    logger.info(f"标记新股信息已推送: {flag_path}")
-
-def read_listing_pushed_flag(date):
-    """读取新上市交易信息是否已推送标志
-    参数:
-        date: 日期对象
-    返回:
-        tuple: (flag_path, is_pushed)
-    """
-    flag_path = os.path.join(Config.NEW_STOCK_DIR, f'listing_pushed_{date.strftime("%Y%m%d")}.flag')
-    is_pushed = os.path.exists(flag_path)
-    return flag_path, is_pushed
-
-def mark_listing_info_pushed():
-    """标记新上市交易信息已推送"""
-    flag_path, _ = read_listing_pushed_flag(get_beijing_time().date())
-    with open(flag_path, 'w') as f:
-        f.write(get_beijing_time().strftime('%Y-%m-%d %H:%M:%S'))
-    logger.info(f"标记新上市交易信息已推送: {flag_path}")
-
-def get_etf_iopv_data(etf_code):
-    """获取ETF净值数据"""
-    try:
-        # 尝试从AkShare获取净值数据
-        logger.info(f"尝试从AkShare获取{etf_code}净值数据...")
-        logger.info("AkShare接口: ak.fund_etf_iopv_em()")
-        df = akshare_retry(ak.fund_etf_iopv_em, symbol=etf_code)
-        
-        if df is not None and not df.empty:
-            # 标准化列名
-            column_mapping = {
-                '日期': 'date',
-                'iopv': 'iopv',
-                '净值': 'net_value',
-                '溢价率': 'premium_rate'
-            }
-            existing_columns = [col for col in column_mapping.keys() if col in df.columns]
-            rename_dict = {col: column_mapping[col] for col in existing_columns}
-            df = df.rename(columns=rename_dict)
-            
-            # 确保必要列存在
-            required_columns = ['date', 'iopv', 'net_value', 'premium_rate']
-            for col in required_columns:
-                if col not in df.columns:
-                    df[col] = None
-            
-            # 转换日期格式
-            df['date'] = pd.to_datetime(df['date'])
-            return df
-    except Exception as e:
-        logger.error(f"获取{etf_code}净值数据失败: {str(e)}", exc_info=True)
-        send_wecom_message(f"获取{etf_code}净值数据失败: {str(e)}")
-        return None
-
-def get_market_sentiment():
-    """获取市场情绪指标（示例实现）"""
-    # 示例：随机生成情绪评分（实际应替换为真实数据源）
-    sentiment_score = random.uniform(0, 100)
-    return {
-        "sentiment_score": sentiment_score,
-        "market_trend": "bullish" if sentiment_score > 50 else "bearish",
-        "volatility_index": random.uniform(10, 30)
-    }
-
-def cron_crawl_daily():
-    """定时任务：爬取日线数据"""
-    if not is_trading_day():
-        return {"status": "skipped", "message": "Not trading day"}
-    return crawl_etf_data(data_type='daily')
