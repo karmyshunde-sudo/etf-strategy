@@ -96,15 +96,6 @@ jobs:
           echo "正在测试爬取小股票池日线数据（仅2只ETF）..."
           python main.py
           
-          # 关键修复：将文件从错误位置移动到正确位置
-          echo "修复数据文件路径..."
-          if [ -d "/home/runner/work/etf-strategy/data" ]; then
-            # 将文件从错误位置移动到工作目录
-            mkdir -p data
-            mv -f /home/runner/work/etf-strategy/data/* data/ 2>/dev/null || echo "没有需要移动的数据文件"
-            echo "已移动数据文件到正确位置"
-          fi
-          
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
@@ -179,15 +170,6 @@ jobs:
           echo "当前北京时间: $(date -u -d "+8 hours" '+%Y-%m-%d %H:%M')"
           python main.py
           
-          # 关键修复：将文件从错误位置移动到正确位置
-          echo "修复数据文件路径..."
-          if [ -d "/home/runner/work/etf-strategy/data" ]; then
-            # 将文件从错误位置移动到工作目录
-            mkdir -p data
-            mv -f /home/runner/work/etf-strategy/data/* data/ 2>/dev/null || echo "没有需要移动的数据文件"
-            echo "已移动数据文件到正确位置"
-          fi
-          
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
@@ -244,15 +226,6 @@ jobs:
           echo "当前北京时间: $(date -u -d "+8 hours" '+%Y-%m-%d %H:%M')"
           python main.py
           
-          # 关键修复：将文件从错误位置移动到正确位置
-          echo "修复数据文件路径..."
-          if [ -d "/home/runner/work/etf-strategy/data" ]; then
-            # 将文件从错误位置移动到工作目录
-            mkdir -p data
-            mv -f /home/runner/work/etf-strategy/data/* data/ 2>/dev/null || echo "没有需要移动的数据文件"
-            echo "已移动数据文件到正确位置"
-          fi
-          
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
@@ -308,15 +281,6 @@ jobs:
           echo "当前北京时间: $(date -u -d "+8 hours" '+%Y-%m-%d %H:%M')"
           python main.py
           
-          # 关键修复：将文件从错误位置移动到正确位置
-          echo "修复数据文件路径..."
-          if [ -d "/home/runner/work/etf-strategy/data" ]; then
-            # 将文件从错误位置移动到工作目录
-            mkdir -p data
-            mv -f /home/runner/work/etf-strategy/data/* data/ 2>/dev/null || echo "没有需要移动的数据文件"
-            echo "已移动数据文件到正确位置"
-          fi
-          
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
@@ -370,15 +334,6 @@ jobs:
           # 执行主程序
           echo "当前北京时间: $(date -u -d "+8 hours" '+%Y-%m-%d %H:%M')"
           python main.py
-          
-          # 关键修复：将文件从错误位置移动到正确位置
-          echo "修复数据文件路径..."
-          if [ -d "/home/runner/work/etf-strategy/data" ]; then
-            # 将文件从错误位置移动到工作目录
-            mkdir -p data
-            mv -f /home/runner/work/etf-strategy/data/* data/ 2>/dev/null || echo "没有需要移动的数据文件"
-            echo "已移动数据文件到正确位置"
-          fi
           
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
@@ -435,15 +390,6 @@ jobs:
           echo "当前北京时间: $(date -u -d "+8 hours" '+%Y-%m-%d %H:%M')"
           python main.py
           
-          # 关键修复：将文件从错误位置移动到正确位置
-          echo "修复数据文件路径..."
-          if [ -d "/home/runner/work/etf-strategy/data" ]; then
-            # 将文件从错误位置移动到工作目录
-            mkdir -p data
-            mv -f /home/runner/work/etf-strategy/data/* data/ 2>/dev/null || echo "没有需要移动的数据文件"
-            echo "已移动数据文件到正确位置"
-          fi
-          
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
@@ -459,15 +405,6 @@ jobs:
           # 执行主程序
           echo "当前北京时间: $(date -u -d "+8 hours" '+%Y-%m-%d %H:%M')"
           python main.py
-          
-          # 关键修复：将文件从错误位置移动到正确位置
-          echo "修复数据文件路径..."
-          if [ -d "/home/runner/work/etf-strategy/data" ]; then
-            # 将文件从错误位置移动到工作目录
-            mkdir -p data
-            mv -f /home/runner/work/etf-strategy/data/* data/ 2>/dev/null || echo "没有需要移动的数据文件"
-            echo "已移动数据文件到正确位置"
-          fi
           
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
@@ -523,15 +460,6 @@ jobs:
           echo "当前北京时间: $(date -u -d "+8 hours" '+%Y-%m-%d %H:%M')"
           python main.py
           
-          # 关键修复：将文件从错误位置移动到正确位置
-          echo "修复数据文件路径..."
-          if [ -d "/home/runner/work/etf-strategy/data" ]; then
-            # 将文件从错误位置移动到工作目录
-            mkdir -p data
-            mv -f /home/runner/work/etf-strategy/data/* data/ 2>/dev/null || echo "没有需要移动的数据文件"
-            echo "已移动数据文件到正确位置"
-          fi
-          
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
@@ -584,15 +512,6 @@ jobs:
           # 执行主程序
           echo "当前北京时间: $(date -u -d "+8 hours" '+%Y-%m-%d %H:%M')"
           python main.py
-          
-          # 关键修复：将文件从错误位置移动到正确位置
-          echo "修复数据文件路径..."
-          if [ -d "/home/runner/work/etf-strategy/data" ]; then
-            # 将文件从错误位置移动到工作目录
-            mkdir -p data
-            mv -f /home/runner/work/etf-strategy/data/* data/ 2>/dev/null || echo "没有需要移动的数据文件"
-            echo "已移动数据文件到正确位置"
-          fi
           
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
@@ -659,15 +578,6 @@ jobs:
         run: |
           echo "当前北京时间: $(date -u -d "+8 hours" '+%Y-%m-%d %H:%M')"
           python main.py
-          
-          # 关键修复：将文件从错误位置移动到正确位置
-          echo "修复数据文件路径..."
-          if [ -d "/home/runner/work/etf-strategy/data" ]; then
-            # 将文件从错误位置移动到工作目录
-            mkdir -p data
-            mv -f /home/runner/work/etf-strategy/data/* data/ 2>/dev/null || echo "没有需要移动的数据文件"
-            echo "已移动数据文件到正确位置"
-          fi
           
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
