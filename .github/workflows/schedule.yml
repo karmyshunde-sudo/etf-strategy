@@ -108,10 +108,12 @@ jobs:
           echo "小股票池日线数据爬取测试完成!"
           echo "现在您可以检查 data/raw/ 目录下是否成功生成了2只ETF的数据文件"
           
-  # 通用测试任务处理程序
+  # 通用测试任务处理程序，25年8月26日，先把小股票池手动测试排除
   run_test_tasks:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
-    runs-on: ubuntu-latest
+    if: ${{ 
+      github.event_name == 'workflow_dispatch' &&
+      github.event.inputs.task != 'test_crawl_small_pool' 
+    }}    runs-on: ubuntu-latest
     permissions:
       contents: write
       id-token: write
