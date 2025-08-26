@@ -134,7 +134,7 @@ def calculate_ETF_score(etf_code):
         logger.debug(f"{etf_code}评分结果: {result}")
         return result
     except Exception as e:
-        error_msg = f"【系统错误】计算{etf_code}评分失败: {str(e)}"
+        error_msg = f"【etf-strategy系统错误】计算{etf_code}评分失败: {str(e)}"
         logger.error(error_msg)
         send_wecom_message(error_msg)
         return None
@@ -168,7 +168,7 @@ def generate_stock_pool():
                 if score:
                     scored_etfs.append(score)
             except Exception as e:
-                error_msg = f"【系统错误】计算{etf.get('code', '未知')}评分失败: {str(e)}"
+                error_msg = f"【etf-strategy系统错误】计算{etf.get('code', '未知')}评分失败: {str(e)}"
                 logger.error(error_msg)
                 send_wecom_message(error_msg)
                 continue
@@ -239,7 +239,7 @@ def generate_stock_pool():
         
         return message
     except Exception as e:
-        error_msg = f"【系统错误】股票池生成失败: {str(e)}"
+        error_msg = f"【etf-strategy系统错误】股票池生成失败: {str(e)}"
         logger.error(error_msg)
         send_wecom_message(error_msg)
         return None
@@ -531,7 +531,7 @@ def _format_strategy_signal(signal, test=False):
     
     # 构建消息
     message = f"{'【测试策略信号】' if test else '【策略信号】'}\n"
-    message += f"CF系统时间：{signal['cf_time']}\n"
+    message += f"etf-strategy系统时间：{signal['cf_time']}\n"
     message += f"ETF代码：{signal['etf_code']}\n"
     message += f"名称：{signal['etf_name']}\n"
     message += f"操作建议：{signal['action']}\n"
@@ -573,7 +573,7 @@ def get_current_stock_pool():
         
         return df
     except Exception as e:
-        error_msg = f"【系统错误】获取股票池失败: {str(e)}"
+        error_msg = f"【etf-strategy系统错误】获取股票池失败: {str(e)}"
         logger.error(error_msg)
         send_wecom_message(error_msg)
         return None
@@ -638,7 +638,7 @@ def check_arbitrage_opportunity():
                         'stop_loss_price': stop_loss_price
                     })
             except Exception as e:
-                error_msg = f"【系统错误】处理ETF {etf_code} 时出错: {str(e)}"
+                error_msg = f"【etf-strategy系统错误】处理ETF {etf_code} 时出错: {str(e)}"
                 logger.error(error_msg)
                 send_wecom_message(error_msg)
         
@@ -672,7 +672,7 @@ def check_arbitrage_opportunity():
             logger.info("未发现套利机会")
             return False
     except Exception as e:
-        error_msg = f"【系统错误】套利检查失败: {str(e)}"
+        error_msg = f"【etf-strategy系统错误】套利检查失败: {str(e)}"
         logger.error(error_msg)
         send_wecom_message(error_msg)
         return False
@@ -871,7 +871,7 @@ def cron_resume_crawl():
         with open(status_file, 'r') as f:
             crawl_status = json.load(f)
     except Exception as e:
-        error_msg = f"【系统错误】加载爬取状态失败: {str(e)}"
+        error_msg = f"【etf-strategy系统错误】加载爬取状态失败: {str(e)}"
         logger.error(error_msg)
         send_wecom_message(error_msg)
         return {"status": "error", "message": "Failed to load status"}
@@ -921,7 +921,7 @@ def cron_resume_crawl():
                 update_crawl_status(etf_code, 'failed', 'Empty data')
                 failed_count += 1
         except Exception as e:
-            error_msg = f"【系统错误】续爬 {etf_code} 时出错: {str(e)}"
+            error_msg = f"【etf-strategy系统错误】续爬 {etf_code} 时出错: {str(e)}"
             logger.error(error_msg)
             send_wecom_message(error_msg)
             update_crawl_status(etf_code, 'failed', error_msg)
@@ -959,7 +959,7 @@ def main():
     if task == 'test_message':
         # T01: 测试消息推送
         beijing_time = get_beijing_time().strftime('%Y-%m-%d %H:%M')
-        message = f"【测试消息】T01: 测试消息推送CF系统时间：{beijing_time}这是来自鱼盆ETF系统的测试消息。"
+        message = f"【测试消息】T01: 测试消息推送etf-strategy系统时间：{beijing_time}这是来自etf-strategy鱼盆ETF系统的测试消息。"
         success = send_wecom_message(message)
         response = {"status": "success" if success else "error", "message": "Test message sent"}
         print(json.dumps(response, indent=2))
@@ -1222,7 +1222,7 @@ def main():
         return result  
   
     else:
-        error_msg = f"【系统错误】未知任务类型: {task}"
+        error_msg = f"【etf-strategy系统错误】未知任务类型: {task}"
         logger.error(error_msg)
         send_wecom_message(error_msg)
         response = {"status": "error", "message": "Unknown task type"}
