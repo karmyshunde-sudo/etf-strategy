@@ -1,12 +1,17 @@
-"""版本250820-Ver1.0"""
+"""版本250826-Ver1148"""
 import os
 
 class Config:
     """全局配置类，所有配置参数通过类属性访问"""
+    # 关键修复：使用 GITHUB_WORKSPACE 环境变量确保正确获取仓库根目录
+    GITHUB_WORKSPACE = os.environ.get('GITHUB_WORKSPACE', 
+                                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     
     # 获取项目基础目录
+    BASE_DIR = os.path.abspath(GITHUB_WORKSPACE)
+    
     # BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    #BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     
     # 原始数据存储目录
     RAW_DATA_DIR = os.path.join(BASE_DIR, 'data', 'raw')
@@ -84,9 +89,24 @@ class Config:
     
     @classmethod
     def init_directories(cls):
-        """初始化所有数据目录"""
-        # 遍历所有目录配置
-        for directory in [cls.RAW_DATA_DIR, cls.STOCK_POOL_DIR, cls.TRADE_LOG_DIR,
-                         cls.ERROR_LOG_DIR, cls.NEW_STOCK_DIR, cls.ARBITRAGE_DIR, cls.STATUS_DIR]:
-            # 创建目录（如果不存在）
-            os.makedirs(directory, exist_ok=True)
+        """初始化所有数据目录（确保目录存在）"""
+        directories = [
+            cls.RAW_DATA_DIR,
+            cls.STOCK_POOL_DIR,
+            cls.TRADE_LOG_DIR,
+            cls.ERROR_LOG_DIR,
+            cls.NEW_STOCK_DIR,
+            cls.ARBITRAGE_DIR
+        ]
+        
+        for directory in directories:
+            try:
+                os.makedirs(directory, exist_ok=True)
+                # 创建.gitkeep文件确保目录被Git跟踪
+                gitkeep_path = os.path.join(directory, '.gitkeep')
+                if not os.path.exists(gitkeep_path):
+                    with open(gitkeep_path, 'w') as f:
+                        f.write(f"# Git keep file for {directory}\n")
+                    print(f"Created .gitkeep in {directory}")
+            except Exception as e:
+                print(f"创建目录 {directory} 失败: {str(e)}")
