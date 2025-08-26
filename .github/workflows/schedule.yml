@@ -99,7 +99,28 @@ jobs:
           # 提交数据变更到仓库
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
+
+          echo "检查 data 目录内容..."
+          ls -la data/
+          ls -la data/raw/
+
+          echo "添加数据文件..."
+          
           git add data/
+          
+          echo "检查暂存区内容..."
+          git status
+
+          # 仅当有变更时才提交
+          if [ -n "$(git status --porcelain)" ]; then
+            git commit -m "手动测试：爬取小股票池日线数据 $(date +'%Y-%m-%d %H:%M')"
+            echo "成功提交数据变更"
+
+            echo "推送变更到仓库..."
+            git push origin main || echo "错误：无法推送到仓库"
+          else
+            echo "没有数据变更，跳过提交"
+            
           git commit -m "手动测试：爬取小股票池日线数据 $(date +'%Y-%m-%d %H:%M')" || echo "没有数据变更"
           git push origin main || echo "Failed to push changes"
 
