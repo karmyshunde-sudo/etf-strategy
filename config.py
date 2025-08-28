@@ -50,7 +50,7 @@ class Config:
     WECOM_WEBHOOK = os.getenv('WECOM_WEBHOOK', '')
     
     # 消息底部附加信息
-    MESSAGE_FOOTER = "【etf-strategy】20250823-Ver3.0"
+    MESSAGE_FOOTER = "【消息由GIT-etf-strategy发送Ver3.0】"
     
     # 数据完整性检查配置
     MIN_DATA_DAYS = 30  # 最小数据天数
